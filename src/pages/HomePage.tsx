@@ -15,10 +15,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [pacienteActual, setPacienteActual] = useState<(Paciente & { id: string }) | null>(null);
   const [medicoActual, setMedicoActual] = useState<Medico | null>(null);
   const [sinInfoMedico, setSinInfoMedico] = useState(false);
-  const [consultasHoy, setConsultasHoy] = useState<any[]>([]);
 
   // Estados del formulario principal
   const [tipoCobro, setTipoCobro] = useState<TipoCobro>('normal');
+  const [justificacionEspecial, setJustificacionEspecial] = useState('');
+  const [showJustificacion, setShowJustificacion] = useState(false);
   const [estudios, setEstudios] = useState<any[]>([]);
   const [subEstudios, setSubEstudios] = useState<SubEstudio[]>([]);
   const [estudioSeleccionado, setEstudioSeleccionado] = useState('');
@@ -33,28 +34,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   useEffect(() => {
     cargarEstudios();
     cargarSubEstudios();
-    cargarConsultasHoy();
   }, []);
-
-  const cargarConsultasHoy = async () => {
-    try {
-      const hoy = format(new Date(), 'yyyy-MM-dd');
-      const { data, error } = await supabase
-        .from('consultas')
-        .select(`
-          *,
-          pacientes(nombre),
-          medicos(nombre)
-        `)
-        .eq('fecha', hoy)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      setConsultasHoy(data || []);
-    } catch (error) {
-      console.error('Error al cargar consultas:', error);
-    }
-  };
 
   const cargarEstudios = async () => {
     try {
@@ -218,6 +198,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       return;
     }
 
+    // Validar justificación si se usa tarifa normal fuera de horario
+    if (tipoCobro === 'normal' && !horarioNormal && !justificacionEspecial.trim()) {
+      alert('Debe proporcionar una justificación para usar tarifa normal fuera del horario establecido');
+      return;
+    }
+
     const totales = calcularTotales();
 
     try {
@@ -233,6 +219,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           forma_pago: formaPago,
           numero_factura: numeroFactura || null,
           sin_informacion_medico: sinInfoMedico,
+          justificacion_especial: tipoCobro === 'normal' && !horarioNormal ? justificacionEspecial : null,
           fecha: format(new Date(), 'yyyy-MM-dd')
         }])
         .select()
@@ -258,6 +245,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       if (ventanaImpresion) {
         const fechaHora = new Date();
         const esReferente = medicoActual && !sinInfoMedico;
+        
+        // Traducir forma de pago
+        const formaPagoTexto = formaPago === 'efectivo' ? 'EFECTIVO' : 
+                                formaPago === 'tarjeta' ? 'TARJETA' :
+                                formaPago === 'transferencia' ? 'TRANSFERENCIA' : 'CUENTA POR COBRAR';
         
         const html = `
           <!DOCTYPE html>
@@ -312,14 +304,19 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 margin: 3mm 0;
               }
               .estudio-item {
-                margin-bottom: 2mm;
+                margin-bottom: 1mm;
                 padding-left: 2mm;
               }
-              .total {
+              .total-section {
                 border-top: 2px solid black;
+                padding-top: 3mm;
+                margin-top: 3mm;
+              }
+              .total {
+                border-top: 1px solid black;
                 border-bottom: 2px solid black;
                 padding: 2mm 0;
-                margin-top: 3mm;
+                margin-top: 2mm;
                 font-weight: bold;
                 font-size: 12pt;
               }
@@ -373,22 +370,37 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 <div class="label" style="margin-bottom: 2mm;">ESTUDIOS:</div>
                 ${descripcion.map(d => {
                   const subEstudio = subEstudios.find(se => se.id === d.sub_estudio_id);
-                  return `
-                    <div class="estudio-item">
-                      <div>${subEstudio?.nombre || 'Estudio'}</div>
-                      <div class="row" style="margin-top: 1mm;">
-                        <span>Precio:</span>
-                        <span>Q ${d.precio.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  `;
+                  return `<div class="estudio-item">• ${subEstudio?.nombre || 'Estudio'}</div>`;
                 }).join('')}
               </div>
 
-              <div class="total">
+              <!-- Sección de pago al final -->
+              <div class="total-section">
                 <div class="row">
-                  <span>TOTAL:</span>
-                  <span>Q ${totales.total.toFixed(2)}</span>
+                  <span class="label">PACIENTE:</span>
+                  <span>${pacienteActual.nombre}</span>
+                </div>
+
+                ${descripcion.map(d => {
+                  const subEstudio = subEstudios.find(se => se.id === d.sub_estudio_id);
+                  return `
+                    <div class="row" style="font-size: 10pt;">
+                      <span>${subEstudio?.nombre || 'Estudio'}</span>
+                      <span>Q ${d.precio.toFixed(2)}</span>
+                    </div>
+                  `;
+                }).join('')}
+
+                <div class="total">
+                  <div class="row">
+                    <span>TOTAL:</span>
+                    <span>Q ${totales.total.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div class="row" style="margin-top: 3mm;">
+                  <span class="label">FORMA DE PAGO:</span>
+                  <span>${formaPagoTexto}</span>
                 </div>
               </div>
 
@@ -415,15 +427,14 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
       alert('Consulta guardada exitosamente');
       
-      // Recargar consultas del día
-      cargarConsultasHoy();
-      
       // Limpiar formulario
       setTimeout(() => {
         setPacienteActual(null);
         setMedicoActual(null);
         setSinInfoMedico(false);
         setTipoCobro('normal');
+        setJustificacionEspecial('');
+        setShowJustificacion(false);
         setEstudioSeleccionado('');
         setSubEstudioSeleccionado('');
         setDescripcion([]);
@@ -538,48 +549,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               </div>
             )}
 
-            {/* Consultas del día */}
-            {!pacienteActual && consultasHoy.length > 0 && (
-              <div className="card">
-                <h3 className="text-lg font-semibold mb-4">📋 Consultas de Hoy</h3>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {consultasHoy.slice(0, 10).map((consulta, index) => (
-                    <div key={consulta.id} className="flex items-center justify-between p-3 bg-gray-50 rounded hover:bg-gray-100 transition-colors">
-                      <div>
-                        <div className="font-medium">#{index + 1} - {consulta.pacientes?.nombre}</div>
-                        <div className="text-sm text-gray-600">
-                          {consulta.sin_informacion_medico ? 'Sin médico' : (consulta.medicos?.nombre || 'N/A')}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs text-gray-500">
-                          {consulta.created_at ? format(new Date(consulta.created_at), 'HH:mm') : 'N/A'}
-                        </div>
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          consulta.tipo_cobro === 'normal' ? 'bg-blue-100 text-blue-700' :
-                          consulta.tipo_cobro === 'social' ? 'bg-green-100 text-green-700' :
-                          'bg-orange-100 text-orange-700'
-                        }`}>
-                          {consulta.tipo_cobro.toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {consultasHoy.length > 10 && (
-                  <p className="text-center text-sm text-gray-500 mt-3">
-                    Y {consultasHoy.length - 10} consultas más... 
-                    <button 
-                      onClick={() => onNavigate('cuadre')}
-                      className="text-blue-600 hover:underline ml-2"
-                    >
-                      Ver todas
-                    </button>
-                  </p>
-                )}
-              </div>
-            )}
-
             {/* Tipo de cobro */}
             <div className="card">
               <h3 className="text-lg font-semibold mb-3">Tipo de Cobro</h3>
@@ -589,7 +558,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                     type="radio"
                     name="tipoCobro"
                     checked={tipoCobro === 'social'}
-                    onChange={() => setTipoCobro('social')}
+                    onChange={() => {
+                      setTipoCobro('social');
+                      setShowJustificacion(false);
+                      setJustificacionEspecial('');
+                    }}
                     className="mr-2"
                   />
                   Social
@@ -599,24 +572,52 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                     type="radio"
                     name="tipoCobro"
                     checked={tipoCobro === 'normal'}
-                    onChange={() => setTipoCobro('normal')}
-                    disabled={!horarioNormal}
+                    onChange={() => {
+                      if (!horarioNormal) {
+                        setShowJustificacion(true);
+                      }
+                      setTipoCobro('normal');
+                    }}
                     className="mr-2"
                   />
-                  Normal {!horarioNormal && '(Fuera de horario)'}
+                  Normal {!horarioNormal && '(Requiere justificación)'}
                 </label>
                 <label className="flex items-center">
                   <input
                     type="radio"
                     name="tipoCobro"
                     checked={tipoCobro === 'especial'}
-                    onChange={() => setTipoCobro('especial')}
+                    onChange={() => {
+                      setTipoCobro('especial');
+                      setShowJustificacion(false);
+                      setJustificacionEspecial('');
+                    }}
                     disabled={horarioNormal}
                     className="mr-2"
                   />
                   Especial {horarioNormal && '(Solo fuera de horario)'}
                 </label>
               </div>
+
+              {/* Modal de justificación */}
+              {showJustificacion && tipoCobro === 'normal' && !horarioNormal && (
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+                  <label className="label">
+                    Justificación para tarifa normal fuera de horario:
+                  </label>
+                  <textarea
+                    className="input-field mt-2"
+                    value={justificacionEspecial}
+                    onChange={(e) => setJustificacionEspecial(e.target.value)}
+                    placeholder="Ej: Médico referente solicitó tarifa normal"
+                    rows={2}
+                    required
+                  />
+                  <p className="text-xs text-gray-600 mt-1">
+                    * Esta justificación quedará registrada en el sistema
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Estudios */}

@@ -76,12 +76,12 @@ function App() {
     return (
       <div>
         {/* Botón para volver al dashboard */}
-        <div className="fixed top-4 left-4 z-50">
+        <div className="fixed top-4 right-4 z-50">
           <button
             onClick={handleBackToDashboard}
-            className="bg-white shadow-lg px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium border border-gray-200"
+            className="bg-white shadow-md px-3 py-1.5 rounded hover:bg-gray-50 transition-colors text-xs font-medium border border-gray-300"
           >
-            ← Volver al Dashboard
+            ← Dashboard
           </button>
         </div>
         {renderPage()}
