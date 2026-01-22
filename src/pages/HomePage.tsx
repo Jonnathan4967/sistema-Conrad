@@ -162,11 +162,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       if (pacienteError) throw pacienteError;
 
       // Insertar o buscar médico si existe
-      let medicoId = null;
       if (medico && !sinInfo) {
         if (medico.id) {
-          // Médico referente existente
-          medicoId = medico.id;
+          // Médico referente existente - ya está en medico.id
         } else {
           // Nuevo médico no referente
           const { data: medicoData, error: medicoError } = await supabase
@@ -176,7 +174,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             .single();
 
           if (medicoError) throw medicoError;
-          medicoId = medicoData.id;
           setMedicoActual(medicoData);
         }
       }
