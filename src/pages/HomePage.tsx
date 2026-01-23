@@ -5,6 +5,7 @@ import { Autocomplete } from '../components/Autocomplete';
 import { Paciente, Medico, SubEstudio, TipoCobro, FormaPago, DetalleConsulta } from '../types';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
+import { generarReciboCompleto, generarReciboMedico, abrirRecibo } from '../lib/recibos';
 
 interface HomePageProps {
   onNavigate: (page: string) => void;
@@ -29,6 +30,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [nit, setNit] = useState('');
   const [formaPago, setFormaPago] = useState<FormaPago>('efectivo');
   const [numeroFactura, setNumeroFactura] = useState('');
+  const [numeroTransferencia, setNumeroTransferencia] = useState('');
+  const [numeroVoucher, setNumeroVoucher] = useState('');
 
   // Cargar estudios y sub-estudios
   useEffect(() => {
@@ -183,6 +186,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       setNit('');
       setFormaPago('efectivo');
       setNumeroFactura('');
+      setNumeroTransferencia('');
+      setNumeroVoucher('');
     }
   };
 
@@ -204,6 +209,18 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       return;
     }
 
+    // Validar número de transferencia
+    if (formaPago === 'transferencia' && !numeroTransferencia.trim()) {
+      alert('Debe ingresar el número de transferencia');
+      return;
+    }
+
+    // Validar número de voucher
+    if (formaPago === 'tarjeta' && !numeroVoucher.trim()) {
+      alert('Debe ingresar el número de voucher/baucher');
+      return;
+    }
+
     const totales = calcularTotales();
 
     try {
@@ -218,6 +235,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           nit: requiereFactura ? nit : null,
           forma_pago: formaPago,
           numero_factura: numeroFactura || null,
+          numero_transferencia: formaPago === 'transferencia' ? numeroTransferencia : null,
+          numero_voucher: formaPago === 'tarjeta' ? numeroVoucher : null,
           sin_informacion_medico: sinInfoMedico,
           justificacion_especial: tipoCobro === 'normal' && !horarioNormal ? justificacionEspecial : null,
           fecha: format(new Date(), 'yyyy-MM-dd')
@@ -240,189 +259,48 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
       if (detallesError) throw detallesError;
 
-      // Generar recibo tipo ticket
-      const ventanaImpresion = window.open('', '', 'height=600,width=400');
-      if (ventanaImpresion) {
-        const fechaHora = new Date();
-        const esReferente = medicoActual && !sinInfoMedico;
-        
-        // Traducir forma de pago
-        const formaPagoTexto = formaPago === 'efectivo' ? 'EFECTIVO' : 
-                                formaPago === 'tarjeta' ? 'TARJETA' :
-                                formaPago === 'transferencia' ? 'TRANSFERENCIA' : 'CUENTA POR COBRAR';
-        
-        const html = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Recibo</title>
-            <style>
-              * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-              }
-              body {
-                font-family: 'Courier New', monospace;
-                font-size: 11pt;
-                line-height: 1.4;
-                padding: 10mm;
-                width: 80mm;
-                background: white;
-                color: black;
-              }
-              .recibo {
-                border: 2px solid black;
-                padding: 5mm;
-              }
-              .header {
-                text-align: center;
-                border-bottom: 2px solid black;
-                padding-bottom: 3mm;
-                margin-bottom: 3mm;
-              }
-              .fecha-hora {
-                text-align: right;
-                font-size: 10pt;
-                margin-bottom: 3mm;
-              }
-              .row {
-                display: flex;
-                justify-content: space-between;
-                margin-bottom: 2mm;
-                font-size: 11pt;
-              }
-              .label {
-                font-weight: bold;
-              }
-              .section {
-                border-top: 1px solid black;
-                padding-top: 2mm;
-                margin-top: 2mm;
-              }
-              .estudios {
-                margin: 3mm 0;
-              }
-              .estudio-item {
-                margin-bottom: 1mm;
-                padding-left: 2mm;
-              }
-              .total-section {
-                border-top: 2px solid black;
-                padding-top: 3mm;
-                margin-top: 3mm;
-              }
-              .total {
-                border-top: 1px solid black;
-                border-bottom: 2px solid black;
-                padding: 2mm 0;
-                margin-top: 2mm;
-                font-weight: bold;
-                font-size: 12pt;
-              }
-              @media print {
-                body { padding: 0; }
-                button { display: none; }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="recibo">
-              <div class="header">
-                <div style="font-weight: bold; font-size: 12pt;">CONRAD</div>
-                <div style="font-size: 10pt;">Centro de Diagnóstico</div>
-                <div style="font-size: 9pt;">Recibo de Consulta</div>
-              </div>
+      // Preparar datos para el recibo
+      const fechaHora = new Date();
+      const esReferente = medicoActual && !sinInfoMedico;
+      
+      const estudiosRecibo = descripcion.map(d => {
+        const subEstudio = subEstudios.find(se => se.id === d.sub_estudio_id);
+        return {
+          nombre: subEstudio?.nombre || 'Estudio',
+          precio: d.precio
+        };
+      });
 
-              <div class="fecha-hora">
-                FECHA: ${format(fechaHora, 'dd/MM/yyyy')}<br>
-                HORA: ${format(fechaHora, 'HH:mm')}
-              </div>
+      const datosRecibo = {
+        paciente: {
+          nombre: pacienteActual.nombre,
+          edad: pacienteActual.edad,
+          telefono: pacienteActual.telefono
+        },
+        medico: medicoActual ? { nombre: medicoActual.nombre } : undefined,
+        esReferente,
+        estudios: estudiosRecibo,
+        total: totales.total,
+        formaPago,
+        fecha: fechaHora,
+        sinInfoMedico
+      };
 
-              <div class="row">
-                <span class="label">NOMBRE:</span>
-                <span>${pacienteActual.nombre}</span>
-              </div>
+      // Preguntar qué tipo de recibo imprimir
+      const tipoRecibo = confirm(
+        '¿Qué recibo desea imprimir?\n\n' +
+        'Aceptar (OK) = Recibo Completo (con precios)\n' +
+        'Cancelar = Orden para Médico (sin precios)'
+      );
 
-              <div class="row">
-                <span class="label">EDAD:</span>
-                <span>${pacienteActual.edad} años</span>
-              </div>
-
-              <div class="row">
-                <span class="label">TELÉFONO:</span>
-                <span>${pacienteActual.telefono}</span>
-              </div>
-
-              <div class="row">
-                <span class="label">REFERENTE:</span>
-                <span>${esReferente ? 'SÍ' : 'NO'}</span>
-              </div>
-
-              ${esReferente ? `
-              <div class="row">
-                <span class="label">DR/DRA:</span>
-                <span>${medicoActual?.nombre}</span>
-              </div>
-              ` : ''}
-
-              <div class="section estudios">
-                <div class="label" style="margin-bottom: 2mm;">ESTUDIOS:</div>
-                ${descripcion.map(d => {
-                  const subEstudio = subEstudios.find(se => se.id === d.sub_estudio_id);
-                  return `<div class="estudio-item">• ${subEstudio?.nombre || 'Estudio'}</div>`;
-                }).join('')}
-              </div>
-
-              <!-- Sección de pago al final -->
-              <div class="total-section">
-                <div class="row">
-                  <span class="label">PACIENTE:</span>
-                  <span>${pacienteActual.nombre}</span>
-                </div>
-
-                ${descripcion.map(d => {
-                  const subEstudio = subEstudios.find(se => se.id === d.sub_estudio_id);
-                  return `
-                    <div class="row" style="font-size: 10pt;">
-                      <span>${subEstudio?.nombre || 'Estudio'}</span>
-                      <span>Q ${d.precio.toFixed(2)}</span>
-                    </div>
-                  `;
-                }).join('')}
-
-                <div class="total">
-                  <div class="row">
-                    <span>TOTAL:</span>
-                    <span>Q ${totales.total.toFixed(2)}</span>
-                  </div>
-                </div>
-
-                <div class="row" style="margin-top: 3mm;">
-                  <span class="label">FORMA DE PAGO:</span>
-                  <span>${formaPagoTexto}</span>
-                </div>
-              </div>
-
-              <div class="section" style="text-align: center; font-size: 9pt; margin-top: 5mm;">
-                Gracias por su preferencia
-              </div>
-            </div>
-
-            <div style="text-align: center; margin-top: 10mm;">
-              <button onclick="window.print()" style="padding: 8px 16px; background: black; color: white; border: none; cursor: pointer; font-size: 11pt; margin-right: 5px;">
-                IMPRIMIR
-              </button>
-              <button onclick="window.close()" style="padding: 8px 16px; background: #666; color: white; border: none; cursor: pointer; font-size: 11pt;">
-                CERRAR
-              </button>
-            </div>
-          </body>
-          </html>
-        `;
-
-        ventanaImpresion.document.write(html);
-        ventanaImpresion.document.close();
+      if (tipoRecibo) {
+        // Recibo completo
+        const htmlCompleto = generarReciboCompleto(datosRecibo);
+        abrirRecibo(htmlCompleto, 'Recibo Completo');
+      } else {
+        // Recibo para médico
+        const htmlMedico = generarReciboMedico(datosRecibo);
+        abrirRecibo(htmlMedico, 'Orden Médico');
       }
 
       alert('Consulta guardada exitosamente');
@@ -442,6 +320,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         setNit('');
         setFormaPago('efectivo');
         setNumeroFactura('');
+        setNumeroTransferencia('');
+        setNumeroVoucher('');
       }, 1000);
       
     } catch (error) {
@@ -461,6 +341,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           <h1 className="text-3xl font-bold">CONRAD - Centro de Diagnóstico</h1>
         </div>
       </header>
+
 
       {/* Barra de botones principales */}
       <div className="container mx-auto py-4">
@@ -485,6 +366,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           >
             <Users size={20} />
             Referentes
+          </button>
+          <button 
+            onClick={() => onNavigate('pacientes')}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <Users size={20} />
+            Pacientes
           </button>
           <button 
             onClick={() => onNavigate('cuadre')}
@@ -734,21 +622,58 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   <select
                     className="input-field"
                     value={formaPago}
-                    onChange={(e) => setFormaPago(e.target.value as FormaPago)}
+                    onChange={(e) => {
+                      setFormaPago(e.target.value as FormaPago);
+                      setNumeroTransferencia('');
+                      setNumeroVoucher('');
+                    }}
                   >
                     {requiereFactura ? (
                       <>
                         <option value="efectivo_facturado">Efectivo Facturado (Depósito)</option>
                         <option value="tarjeta">Tarjeta Facturado</option>
+                        <option value="transferencia">Transferencia Bancaria</option>
                       </>
                     ) : (
                       <>
                         <option value="efectivo">Efectivo</option>
+                        <option value="tarjeta">Tarjeta</option>
+                        <option value="transferencia">Transferencia Bancaria</option>
                         <option value="estado_cuenta">Estado de Cuenta</option>
                       </>
                     )}
                   </select>
                 </div>
+
+                {/* Campo para número de transferencia */}
+                {formaPago === 'transferencia' && (
+                  <div>
+                    <label className="label">Número de Transferencia *</label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      value={numeroTransferencia}
+                      onChange={(e) => setNumeroTransferencia(e.target.value)}
+                      placeholder="Número de referencia"
+                      required
+                    />
+                  </div>
+                )}
+
+                {/* Campo para número de voucher */}
+                {formaPago === 'tarjeta' && (
+                  <div>
+                    <label className="label">Número de Voucher/Baucher *</label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      value={numeroVoucher}
+                      onChange={(e) => setNumeroVoucher(e.target.value)}
+                      placeholder="Número de voucher"
+                      required
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label className="label">Número de Factura</label>

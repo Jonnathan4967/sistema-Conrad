@@ -45,7 +45,7 @@ export interface Consulta {
   tipo_cobro: 'normal' | 'social' | 'especial';
   requiere_factura: boolean;
   nit?: string;
-  forma_pago: 'efectivo' | 'tarjeta' | 'efectivo_facturado' | 'estado_cuenta';
+  forma_pago: 'efectivo' | 'tarjeta' | 'transferencia' | 'efectivo_facturado' | 'estado_cuenta';
   numero_factura?: string;
   sin_informacion_medico: boolean;
   fecha: string;
@@ -82,4 +82,4 @@ export interface Municipio {
 }
 
 export type TipoCobro = 'normal' | 'social' | 'especial';
-export type FormaPago = 'efectivo' | 'tarjeta' | 'efectivo_facturado' | 'estado_cuenta';
+export type FormaPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'efectivo_facturado' | 'estado_cuenta';
