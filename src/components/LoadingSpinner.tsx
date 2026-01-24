@@ -14,14 +14,14 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
 }) => {
   const sizes = {
     sm: 'h-4 w-4',
-    md: 'h-8 w-8',
-    lg: 'h-12 w-12'
+    md: 'h-6 w-6',
+    lg: 'h-8 w-8'
   };
 
   const spinner = (
     <>
       <Loader2 className={`${sizes[size]} animate-spin text-blue-600`} />
-      {text && <p className="ml-3 text-gray-600">{text}</p>}
+      {text && <p className="ml-2 text-sm text-gray-600">{text}</p>}
     </>
   );
 

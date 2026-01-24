@@ -33,15 +33,15 @@ export const Toast: React.FC<ToastProps> = ({
   };
 
   return (
-    <div className={`fixed top-4 right-4 ${styles[type]} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 z-50 animate-slide-in-right max-w-md`}>
+    <div className={`fixed top-4 right-4 ${styles[type]} text-white px-3 py-2 rounded shadow-lg flex items-center gap-2 z-50 animate-slide-in-right max-w-sm text-sm`}>
       {icons[type]}
       <span className="flex-1">{message}</span>
       <button 
         onClick={onClose}
-        className="ml-2 hover:bg-white/20 rounded p-1 transition-colors"
+        className="ml-2 hover:bg-white/20 rounded p-0.5 transition-colors"
         aria-label="Cerrar notificación"
       >
-        <X size={18} />
+        <X size={16} />
       </button>
     </div>
   );

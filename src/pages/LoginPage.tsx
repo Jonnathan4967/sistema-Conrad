@@ -23,8 +23,51 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-2xl p-8 max-w-md w-full">
+    <div 
+      style={{
+        backgroundImage: 'url(/conrad-building.jpg)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100%',
+        height: '100%',
+        minHeight: '100vh',
+        minWidth: '100vw',
+        margin: 0,
+        padding: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      {/* Overlay oscuro para mejor legibilidad */}
+      <div style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.4)'
+      }}></div>
+      
+      {/* Contenedor del formulario */}
+      <div style={{
+        position: 'relative',
+        zIndex: 10,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        backdropFilter: 'blur(4px)',
+        borderRadius: '0.5rem',
+        boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)',
+        padding: '2rem',
+        maxWidth: '28rem',
+        width: '100%',
+        margin: '0 1rem'
+      }}>
         <div className="text-center mb-8">
           <div className="bg-blue-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
             <Lock className="text-blue-600" size={40} />

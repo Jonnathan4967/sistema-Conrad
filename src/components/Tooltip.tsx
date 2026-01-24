@@ -36,7 +36,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       {children}
       {show && (
         <div className={`absolute z-10 ${positions[position]} pointer-events-none`}>
-          <div className="bg-gray-800 text-white text-xs rounded py-1 px-2 whitespace-nowrap shadow-lg">
+          <div className="bg-gray-800 text-white text-[11px] rounded py-1 px-2 whitespace-nowrap shadow-lg">
             {text}
             <div className={`absolute ${arrows[position]}`} />
           </div>
