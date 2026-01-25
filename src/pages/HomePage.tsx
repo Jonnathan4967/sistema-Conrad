@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, FileText, Users, BarChart3, Trash2, FileSpreadsheet, Settings } from 'lucide-react';
+import { Plus, FileText, Users, BarChart3, Trash2, FileSpreadsheet, Settings, Calendar } from 'lucide-react';
 import { NuevoPacienteModal } from '../components/NuevoPacienteModal';
 import { Autocomplete } from '../components/Autocomplete';
 import { Paciente, Medico, SubEstudio, TipoCobro, FormaPago, DetalleConsulta } from '../types';
@@ -419,6 +419,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           >
             <BarChart3 size={20} />
             Cuadre Diario
+          </button>
+          <button 
+            onClick={() => onNavigate('cuadre-quincenal')}
+            className="btn-secondary flex items-center gap-2 bg-purple-50 border-purple-300"
+          >
+            <Calendar size={20} />
+            Cuadre Quincenal
           </button>
           <button 
             onClick={() => onNavigate('estadisticas')}

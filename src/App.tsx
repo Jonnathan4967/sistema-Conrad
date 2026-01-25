@@ -6,6 +6,7 @@ import { ProductosPage } from './pages/ProductosPage';
 import { ReferentesPage } from './pages/ReferentesPage';
 import { PacientesPage } from './pages/PacientesPage';
 import { CuadreDiarioPage } from './pages/CuadreDiarioPage';
+import { CuadreQuincenalPage } from './pages/CuadreQuincenalPage';
 import { EstadisticasPage } from './pages/EstadisticasPage';
 import { ReportesPage } from './pages/ReportesPage';
 import { GestionUsuariosPage } from './pages/GestionUsuariosPage';
@@ -77,6 +78,8 @@ function App() {
           return <PacientesPage onBack={() => setCurrentPage('home')} />;
         case 'cuadre':
           return <CuadreDiarioPage onBack={() => setCurrentPage('home')} />;
+        case 'cuadre-quincenal':
+          return <CuadreQuincenalPage onBack={() => setCurrentPage('home')} />;
         case 'estadisticas':
           return <EstadisticasPage onBack={() => setCurrentPage('home')} />;
         case 'reportes':
