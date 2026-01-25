@@ -266,8 +266,7 @@ export const generarReciboMedico = (datos: DatosRecibo) => {
         </div>
 
         <div class="fecha-hora">
-          FECHA: ${format(datos.fecha, 'dd/MM/yyyy')}<br>
-          HORA: ${format(datos.fecha, 'HH:mm')}
+          FECHA: ${format(datos.fecha, 'dd/MM/yyyy')}
         </div>
 
         <div class="row">

@@ -81,7 +81,7 @@ export interface Municipio {
   departamento_id: string;
 }
 
-export type TipoCobro = 'normal' | 'social' | 'especial';
+export type TipoCobro = 'normal' | 'social' | 'especial' | 'personalizado';
 export type FormaPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'efectivo_facturado' | 'estado_cuenta';
 
 // ===== TIPOS DEL MÓDULO DE INVENTARIO =====

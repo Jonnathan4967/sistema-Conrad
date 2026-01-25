@@ -486,7 +486,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             {/* Tipo de cobro */}
             <div className="card">
               <h3 className="text-lg font-semibold mb-3">Tipo de Cobro</h3>
-              <div className="flex gap-4">
+              <div className="flex gap-4 flex-wrap">
                 <label className="flex items-center">
                   <input
                     type="radio"
@@ -531,19 +531,36 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   />
                   Especial {horarioNormal && '(Solo fuera de horario)'}
                 </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="tipoCobro"
+                    checked={tipoCobro === 'personalizado'}
+                    onChange={() => {
+                      setTipoCobro('personalizado');
+                      setShowJustificacion(true);
+                    }}
+                    className="mr-2"
+                  />
+                  <span className="text-purple-600 font-medium">Personalizado</span>
+                </label>
               </div>
 
               {/* Modal de justificación */}
-              {showJustificacion && tipoCobro === 'normal' && !horarioNormal && (
+              {showJustificacion && (tipoCobro === 'normal' && !horarioNormal || tipoCobro === 'personalizado') && (
                 <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
                   <label className="label">
-                    Justificación para tarifa normal fuera de horario:
+                    {tipoCobro === 'personalizado' 
+                      ? 'Justificación y precio personalizado:' 
+                      : 'Justificación para tarifa normal fuera de horario:'}
                   </label>
                   <textarea
                     className="input-field mt-2"
                     value={justificacionEspecial}
                     onChange={(e) => setJustificacionEspecial(e.target.value)}
-                    placeholder="Ej: Médico referente solicitó tarifa normal"
+                    placeholder={tipoCobro === 'personalizado' 
+                      ? "Ej: Por orden del Dr. García, precio especial Q150" 
+                      : "Ej: Médico referente solicitó tarifa normal"}
                     rows={2}
                     required
                   />
@@ -599,9 +616,27 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                     const subEstudio = subEstudios.find(se => se.id === item.sub_estudio_id);
                     return (
                       <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                        <div>
+                        <div className="flex-1">
                           <div className="font-medium">{subEstudio?.nombre}</div>
-                          <div className="text-sm text-gray-600">Q {item.precio.toFixed(2)}</div>
+                          {tipoCobro === 'personalizado' ? (
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-sm text-gray-600">Q</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={item.precio}
+                                onChange={(e) => {
+                                  const nuevaDescripcion = [...descripcion];
+                                  nuevaDescripcion[index].precio = parseFloat(e.target.value) || 0;
+                                  setDescripcion(nuevaDescripcion);
+                                }}
+                                className="w-24 px-2 py-1 border border-purple-300 rounded focus:ring-2 focus:ring-purple-500"
+                              />
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-600">Q {item.precio.toFixed(2)}</div>
+                          )}
                         </div>
                         <button
                           onClick={() => eliminarDeDescripcion(index)}
