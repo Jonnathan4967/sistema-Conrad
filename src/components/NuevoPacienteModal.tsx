@@ -117,10 +117,14 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
       return;
     }
 
-    // Validar datos del médico (si no es "sin información")
-    if (!sinInformacion && (!nombreMedico || !telefonoMedico || !departamentoMedico || !municipioMedico || !direccionMedico)) {
-      alert('Por favor complete todos los campos del médico o marque "Sin información"');
-      return;
+    // Si tiene nombre de médico, exigir que complete datos o marque "sin información"
+    const tieneMedico = nombreMedico.trim() !== '';
+    
+    if (tieneMedico && !sinInformacion) {
+      if (!telefonoMedico || !departamentoMedico || !municipioMedico || !direccionMedico) {
+        alert('Por favor complete todos los campos del médico o marque "Sin información"');
+        return;
+      }
     }
 
     const paciente: Paciente = {
@@ -133,7 +137,8 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
 
     let medico: Medico | null = null;
     
-    if (!sinInformacion) {
+    // Si tiene nombre de médico (independiente de si es "referente" o no)
+    if (tieneMedico && !sinInformacion) {
       if (esReferente && medicoSeleccionado) {
         medico = medicoSeleccionado;
       } else {
@@ -143,12 +148,15 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
           departamento: departamentoMedico,
           municipio: municipioMedico,
           direccion: direccionMedico,
-          es_referente: false
+          es_referente: esReferente // Guardar como referente solo si checkbox está marcado
         };
       }
     }
 
-    onSave(paciente, medico, sinInformacion);
+    // IMPORTANTE: Si tiene nombre de médico, siempre mostrar en impresión
+    const sinInfoParaImprimir = !tieneMedico || sinInformacion;
+    
+    onSave(paciente, medico, sinInfoParaImprimir);
     resetForm();
   };
 

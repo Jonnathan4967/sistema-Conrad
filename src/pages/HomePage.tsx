@@ -265,23 +265,24 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     try {
       // Crear consulta
       const { data: consultaData, error: consultaError } = await supabase
-        .from('consultas')
-        .insert([{
-          paciente_id: pacienteActual.id,
-          medico_id: medicoActual?.id || null,
-          tipo_cobro: tipoCobro,
-          requiere_factura: requiereFactura,
-          nit: requiereFactura ? nit : null,
-          forma_pago: formaPago,
-          numero_factura: numeroFactura || null,
-          numero_transferencia: formaPago === 'transferencia' ? numeroTransferencia : null,
-          numero_voucher: formaPago === 'tarjeta' ? numeroVoucher : null,
-          sin_informacion_medico: sinInfoMedico,
-          justificacion_especial: tipoCobro === 'normal' && !horarioNormal ? justificacionEspecial : null,
-          fecha: format(new Date(), 'yyyy-MM-dd')
-        }])
-        .select()
-        .single();
+  .from('consultas')
+  .insert([{
+    paciente_id: pacienteActual.id,
+    medico_id: medicoActual?.id || null,
+    medico_recomendado: medicoActual?.nombre || null, // ✅ Guardar nombre del médico
+    tipo_cobro: tipoCobro,
+    requiere_factura: requiereFactura,
+    nit: requiereFactura ? nit : null,
+    forma_pago: formaPago,
+    numero_factura: numeroFactura || null,
+    numero_transferencia: formaPago === 'transferencia' ? numeroTransferencia : null,
+    numero_voucher: formaPago === 'tarjeta' ? numeroVoucher : null,
+    sin_informacion_medico: sinInfoMedico,
+    justificacion_especial: tipoCobro === 'normal' && !horarioNormal ? justificacionEspecial : null,
+    fecha: format(new Date(), 'yyyy-MM-dd')
+  }])
+  .select()
+  .single();
 
       if (consultaError) throw consultaError;
 
@@ -300,7 +301,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
       // Preparar datos para el recibo
       const fechaHora = new Date();
-      const esReferente = medicoActual && !sinInfoMedico;
+      // Si tiene médico (aunque no sea referente marcado), mostrar en impresión
+      const tieneMedico = medicoActual !== null;
+      const esReferente = tieneMedico && !sinInfoMedico;
       
       const estudiosRecibo = descripcion.map(d => {
         const subEstudio = subEstudios.find(se => se.id === d.sub_estudio_id);

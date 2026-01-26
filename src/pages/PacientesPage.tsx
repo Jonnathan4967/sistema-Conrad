@@ -78,6 +78,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
   const abrirEditarPaciente = (consulta: any) => {
     setPacienteEditando(consulta.pacientes);
+    setConsultaSeleccionada(consulta);
     setShowEditModal(true);
   };
 
@@ -86,9 +87,10 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     setShowAgregarEstudioModal(true);
   };
 
-  const handleGuardarPaciente = async (pacienteData: any) => {
+  const handleGuardarPaciente = async (pacienteData: any, medicoId: string | null, medicoNombre: string | null) => {
     try {
-      const { error } = await supabase
+      // Actualizar paciente
+      const { error: errorPaciente } = await supabase
         .from('pacientes')
         .update({
           nombre: pacienteData.nombre,
@@ -99,11 +101,24 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         })
         .eq('id', pacienteEditando.id);
 
-      if (error) throw error;
+      if (errorPaciente) throw errorPaciente;
 
-      alert('Paciente actualizado exitosamente');
+      // Actualizar consulta con info del médico
+      const { error: errorConsulta } = await supabase
+  .from('consultas')
+  .update({
+    medico_id: medicoId,
+    medico_recomendado: medicoNombre,
+    sin_informacion_medico: !(medicoId || medicoNombre) // ✅ Si no tiene médico, marcar como sin info
+  })
+  .eq('id', consultaSeleccionada.id);
+
+      if (errorConsulta) throw errorConsulta;
+
+      alert('Paciente y médico actualizados exitosamente');
       setShowEditModal(false);
       setPacienteEditando(null);
+      setConsultaSeleccionada(null);
       cargarConsultas();
     } catch (error) {
       console.error('Error al actualizar paciente:', error);
@@ -112,7 +127,9 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   };
 
   const reimprimirRecibo = (consulta: any) => {
-    const esReferente = !consulta.sin_informacion_medico && consulta.medicos;
+    // Si tiene médico (nombre o ID) y NO marcó "sin información", mostrar
+    const tieneMedico = consulta.medicos || consulta.medico_recomendado;
+    const esReferente = tieneMedico && !consulta.sin_informacion_medico;
     
     const estudiosRecibo = consulta.detalle_consultas.map((d: any) => ({
       nombre: d.sub_estudios.nombre,
@@ -121,13 +138,16 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
     const total = estudiosRecibo.reduce((sum: number, e: any) => sum + e.precio, 0);
 
+    // Usar nombre del médico guardado o el médico recomendado manual
+    const nombreMedico = consulta.medicos?.nombre || consulta.medico_recomendado;
+
     const datosRecibo = {
       paciente: {
         nombre: consulta.pacientes.nombre,
         edad: consulta.pacientes.edad,
         telefono: consulta.pacientes.telefono
       },
-      medico: consulta.medicos ? { nombre: consulta.medicos.nombre } : undefined,
+      medico: nombreMedico ? { nombre: nombreMedico } : undefined,
       esReferente,
       estudios: estudiosRecibo,
       total,
@@ -161,7 +181,9 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       return;
     }
 
-    const esReferente = !consulta.sin_informacion_medico && consulta.medicos;
+    // Si tiene médico (nombre o ID) y NO marcó "sin información", mostrar
+    const tieneMedico = consulta.medicos || consulta.medico_recomendado;
+    const esReferente = tieneMedico && !consulta.sin_informacion_medico;
     
     const estudiosRecibo = estudiosAdicionales.map((d: any) => ({
       nombre: d.sub_estudios.nombre,
@@ -170,13 +192,16 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
     const total = estudiosRecibo.reduce((sum: number, e: any) => sum + e.precio, 0);
 
+    // Usar nombre del médico guardado o el médico recomendado manual
+    const nombreMedico = consulta.medicos?.nombre || consulta.medico_recomendado;
+
     const datosRecibo = {
       paciente: {
         nombre: consulta.pacientes.nombre,
         edad: consulta.pacientes.edad,
         telefono: consulta.pacientes.telefono
       },
-      medico: consulta.medicos ? { nombre: consulta.medicos.nombre } : undefined,
+      medico: nombreMedico ? { nombre: nombreMedico } : undefined,
       esReferente,
       estudios: estudiosRecibo,
       total,
@@ -390,12 +415,14 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       </div>
 
       {/* Modal de edición */}
-      {showEditModal && pacienteEditando && (
+      {showEditModal && pacienteEditando && consultaSeleccionada && (
         <EditarPacienteModal
           paciente={pacienteEditando}
+          consulta={consultaSeleccionada}
           onClose={() => {
             setShowEditModal(false);
             setPacienteEditando(null);
+            setConsultaSeleccionada(null);
           }}
           onSave={handleGuardarPaciente}
         />

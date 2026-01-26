@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Autocomplete } from './Autocomplete';
 import { departamentosGuatemala, municipiosGuatemala } from '../data/guatemala';
+import { supabase } from '../lib/supabase';
 
 interface EditarPacienteModalProps {
   paciente: any;
+  consulta: any; // Agregamos consulta para poder actualizar médico
   onClose: () => void;
-  onSave: (pacienteData: any) => void;
+  onSave: (pacienteData: any, medicoId: string | null, medicoNombre: string | null) => void;
 }
 
 export const EditarPacienteModal: React.FC<EditarPacienteModalProps> = ({
   paciente,
+  consulta,
   onClose,
   onSave
 }) => {
@@ -19,6 +22,24 @@ export const EditarPacienteModal: React.FC<EditarPacienteModalProps> = ({
   const [telefono, setTelefono] = useState(paciente.telefono);
   const [departamento, setDepartamento] = useState(paciente.departamento);
   const [municipio, setMunicipio] = useState(paciente.municipio);
+  const [medicos, setMedicos] = useState<any[]>([]);
+  const [medicoId, setMedicoId] = useState<string>(consulta?.medico_id || '');
+  const [medicoNombre, setMedicoNombre] = useState<string>('');
+  const [esReferente, setEsReferente] = useState(consulta?.es_referente || false);
+
+  useEffect(() => {
+    cargarMedicos();
+  }, []);
+
+  const cargarMedicos = async () => {
+    const { data } = await supabase
+      .from('medicos')
+      .select('*')
+      .eq('es_referente', true)
+      .order('nombre');
+    
+    if (data) setMedicos(data);
+  };
 
   const handleSubmit = () => {
     if (!nombre.trim() || !edad || !telefono || !departamento || !municipio) {
@@ -32,7 +53,7 @@ export const EditarPacienteModal: React.FC<EditarPacienteModalProps> = ({
       telefono,
       departamento,
       municipio
-    });
+    }, medicoId || null, medicoNombre || null);
   };
 
   const municipiosFiltrados = municipiosGuatemala.filter(
@@ -111,6 +132,52 @@ export const EditarPacienteModal: React.FC<EditarPacienteModalProps> = ({
               required
             />
           </div>
+
+          <div className="md:col-span-2">
+            <label className="flex items-center gap-2 mb-2">
+              <input
+                type="checkbox"
+                checked={esReferente}
+                onChange={(e) => {
+                  setEsReferente(e.target.checked);
+                  if (!e.target.checked) {
+                    setMedicoId('');
+                    setMedicoNombre('');
+                  }
+                }}
+                className="rounded"
+              />
+              <span className="label">¿Es referente médico?</span>
+            </label>
+          </div>
+
+          {esReferente && (
+            <>
+              <div className="md:col-span-2">
+                <Autocomplete
+                  label="Médico Referente"
+                  options={medicos.map(m => ({ id: m.id, nombre: m.nombre }))}
+                  value={medicoId}
+                  onChange={(val) => setMedicoId(val)}
+                  placeholder="Seleccione médico de la lista"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="label">O escriba nombre del médico</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={medicoNombre}
+                  onChange={(e) => {
+                    setMedicoNombre(e.target.value);
+                    if (e.target.value) setMedicoId('');
+                  }}
+                  placeholder="Nombre del médico (si no está en la lista)"
+                />
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex gap-3 justify-end mt-6">
