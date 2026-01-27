@@ -14,6 +14,8 @@ interface Consulta {
   medicos?: {
     nombre: string;
   };
+  medico_recomendado?: string;
+  sin_informacion_medico?: boolean;
   numero_factura?: string;
   tipo_cobro: string;
   forma_pago: string;
@@ -111,37 +113,34 @@ async function crearHojaDiaria(
   const fecha = `${dia.toString().padStart(2, '0')}/${mes.toString().padStart(2, '0')}/${anio}`;
 
   // Calcular número total de columnas
-  const numColumnasFijas = 7; // #, Nombre, Edad, Factura, Estudio, Médico, Precio Social
+  const numColumnasFijas = 7;
   const numColumnasEstudios = estudiosDisponibles.length;
-  const numColumnasFinales = 2; // Cuenta, Tipo
+  const numColumnasFinales = 2;
   const totalColumnas = numColumnasFijas + numColumnasEstudios + numColumnasFinales;
 
-  // Configurar anchos de columna dinámicamente
+  // Configurar anchos de columna
   const columnWidths: any[] = [
-    { width: 4 },   // # 
-    { width: 24 },  // Nombre
-    { width: 6 },   // Edad
-    { width: 13 },  // Factura
-    { width: 28 },  // Estudio
-    { width: 20 },  // Médico
-    { width: 13 },  // Precio Social
+    { width: 4 },
+    { width: 24 },
+    { width: 6 },
+    { width: 13 },
+    { width: 28 },
+    { width: 20 },
+    { width: 13 },
   ];
 
-  // Agregar anchos para columnas de estudios
   estudiosDisponibles.forEach(() => {
     columnWidths.push({ width: 11 });
   });
 
-  // Agregar anchos para columnas finales
-  columnWidths.push({ width: 11 }); // Cuenta
-  columnWidths.push({ width: 6 });  // Tipo
+  columnWidths.push({ width: 11 });
+  columnWidths.push({ width: 6 });
 
   worksheet.columns = columnWidths;
 
-  // ===== FILA 1: TÍTULO =====
+  // FILA 1: TÍTULO
   worksheet.mergeCells(`B1:F1`);
   
-  // Calcular letra de última columna
   const getColumnLetter = (colNumber: number): string => {
     let letter = '';
     while (colNumber > 0) {
@@ -182,7 +181,7 @@ async function crearHojaDiaria(
     right: { style: 'thin' }
   };
 
-  // ===== FILA 2: HEADERS =====
+  // FILA 2: HEADERS
   const headers = [
     '',
     'NOMBRE DEL PACIENTE',
@@ -199,9 +198,8 @@ async function crearHojaDiaria(
   worksheet.getRow(2).values = headers;
   worksheet.getRow(2).height = 25;
   
-  // Estilo de headers (azul oscuro con texto blanco)
   headers.forEach((header, idx) => {
-    if (idx === 0) return; // Skip columna A
+    if (idx === 0) return;
     const cell = worksheet.getCell(2, idx + 1);
     cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = {
@@ -218,34 +216,51 @@ async function crearHojaDiaria(
     };
   });
 
-  // ===== FILAS 3+: DATOS DE PACIENTES =====
+  // FILAS 3+: DATOS
   let filaActual = 3;
 
   consultas.forEach((consulta, idx) => {
     const nombreEstudio = consulta.detalle_consultas[0]?.sub_estudios?.nombre || '';
     const estudioId = consulta.detalle_consultas[0]?.sub_estudios?.estudios?.id || '';
     
-    // Detectar si es inhábil (fines de semana)
     const fechaConsulta = new Date(consulta.fecha + 'T12:00:00');
     const esInhabil = fechaConsulta.getDay() === 0 || fechaConsulta.getDay() === 6;
     const estudioTexto = esInhabil ? `${nombreEstudio.toUpperCase()} INHABIL` : nombreEstudio.toUpperCase();
 
     const precio = consulta.detalle_consultas.reduce((sum, det) => sum + det.precio, 0);
 
-    // Crear array de valores para la fila
+    // DEBUG
+    console.log(`=== CONSULTA ${idx + 1} ===`);
+    console.log('sin_informacion_medico:', consulta.sin_informacion_medico);
+    console.log('medicos:', consulta.medicos);
+    console.log('medico_recomendado:', consulta.medico_recomendado);
+    
+    let nombreMedico: string;
+    
+    if (consulta.sin_informacion_medico) {
+      nombreMedico = 'SIN INFORMACIÓN';
+    } else if (consulta.medicos?.nombre) {
+      nombreMedico = consulta.medicos.nombre;
+    } else if (consulta.medico_recomendado) {
+      nombreMedico = consulta.medico_recomendado;
+    } else {
+      nombreMedico = 'TRATANTE';
+    }
+    
+    console.log('Nombre médico final:', nombreMedico);
+    console.log('===================');
+
     const valoresFila: any[] = [
-      idx + 1, // Número
+      idx + 1,
       consulta.pacientes.nombre.toUpperCase(),
       consulta.pacientes.edad,
       consulta.numero_factura || '',
       estudioTexto,
-      consulta.medicos?.nombre?.toUpperCase() || 'TRATANTE',
+      nombreMedico.toUpperCase(),
       consulta.tipo_cobro === 'social' ? precio : ''
     ];
 
-    // Agregar precios en las columnas de estudios
     estudiosDisponibles.forEach(estudio => {
-      // Comparar el ID del estudio con el de la consulta
       if (estudio.id === estudioId) {
         valoresFila.push(precio);
       } else {
@@ -253,25 +268,20 @@ async function crearHojaDiaria(
       }
     });
 
-    // Agregar columnas finales
-    valoresFila.push(consulta.forma_pago === 'estado_cuenta' ? precio : ''); // Cuenta
-    valoresFila.push('P'); // Tipo
+    valoresFila.push(consulta.forma_pago === 'estado_cuenta' ? precio : '');
+    valoresFila.push('P');
 
     worksheet.getRow(filaActual).values = valoresFila;
 
-    // Aplicar estilos a cada celda
     valoresFila.forEach((valor, colIdx) => {
       const cell = worksheet.getCell(filaActual, colIdx + 1);
       
-      // Fuente
       if (colIdx === 4 && esInhabil) {
-        // Estudio con INHABIL en rojo
         cell.font = { name: 'Arial', size: 10, color: { argb: 'FFFF0000' }, bold: true };
       } else {
         cell.font = { name: 'Arial', size: 10 };
       }
 
-      // Alineación
       if (colIdx === 0 || colIdx === 2) {
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
       } else if (colIdx >= 6 && colIdx < valoresFila.length - 1) {
@@ -282,12 +292,10 @@ async function crearHojaDiaria(
         cell.alignment = { horizontal: 'left', vertical: 'middle' };
       }
 
-      // Formato de números
       if (typeof valor === 'number' && colIdx >= 6) {
         cell.numFmt = '#,##0.00';
       }
 
-      // Bordes
       cell.border = {
         top: { style: 'thin' },
         bottom: { style: 'thin' },
@@ -299,10 +307,9 @@ async function crearHojaDiaria(
     filaActual++;
   });
 
-  // ===== SECCIÓN DE TOTALES =====
+  // TOTALES
   const filaTotalesInicio = Math.max(filaActual + 2, 8);
 
-  // Calcular totales
   const totalEfectivo = consultas
     .filter(c => c.forma_pago === 'efectivo')
     .reduce((sum, c) => sum + c.detalle_consultas.reduce((s, d) => s + d.precio, 0), 0);
@@ -333,7 +340,6 @@ async function crearHojaDiaria(
   totales.forEach((total, idx) => {
     const fila = filaTotalesInicio + idx;
 
-    // Label (columna F - Médico)
     const cellLabel = worksheet.getCell(fila, 6);
     cellLabel.value = total.label;
     cellLabel.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -350,7 +356,6 @@ async function crearHojaDiaria(
       right: { style: 'thin' }
     };
 
-    // Valor (columna G - Precio Social)
     const cellValor = worksheet.getCell(fila, 7);
     cellValor.value = total.valor;
     cellValor.numFmt = '#,##0.00';

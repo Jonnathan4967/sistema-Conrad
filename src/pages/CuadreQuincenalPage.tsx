@@ -31,7 +31,7 @@ export const CuadreQuincenalPage: React.FC<CuadreQuincenalPageProps> = ({ onBack
         ? new Date(anio, mes - 1, 15, 23, 59, 59)
         : new Date(anio, mes - 1 + 1, 0, 23, 59, 59); // Último día del mes
 
-      // Obtener consultas con médico referente y estado de cuenta
+      // ✅ CAMBIO PRINCIPAL: Obtener TODAS las consultas con estado de cuenta que tengan médico
       const { data: consultas, error } = await supabase
         .from('consultas')
         .select(`
@@ -45,11 +45,9 @@ export const CuadreQuincenalPage: React.FC<CuadreQuincenalPageProps> = ({ onBack
         `)
         .gte('fecha', fechaInicio.toISOString())
         .lte('fecha', fechaFin.toISOString())
-        .not('medico_id', 'is', null)
-        .eq('sin_informacion_medico', false)
+        .eq('sin_informacion_medico', false) // ✅ Solo excluir los que NO tienen médico
         .eq('forma_pago', 'estado_cuenta')
-        .order('medico_id')
-        .order('fecha');
+        .order('created_at');
 
       if (error) throw error;
 
@@ -59,11 +57,13 @@ export const CuadreQuincenalPage: React.FC<CuadreQuincenalPageProps> = ({ onBack
         return;
       }
 
-      // Agrupar por médico
+      // ✅ Agrupar por médico (usando medicos.nombre O medico_recomendado)
       const consultasPorMedico: { [key: string]: any[] } = {};
       
       consultas.forEach(consulta => {
-        const medicoNombre = consulta.medicos?.nombre || 'Sin médico';
+        // Prioridad: nombre del médico registrado, si no existe usar medico_recomendado
+        const medicoNombre = consulta.medicos?.nombre || consulta.medico_recomendado || 'Sin médico';
+        
         if (!consultasPorMedico[medicoNombre]) {
           consultasPorMedico[medicoNombre] = [];
         }
@@ -192,7 +192,7 @@ export const CuadreQuincenalPage: React.FC<CuadreQuincenalPageProps> = ({ onBack
                 📅 Periodo: {quincena === 1 ? '1-15' : '16-fin de mes'} de {meses[mes - 1]}
               </p>
               <p className="text-sm text-gray-600">
-                👨‍⚕️ Solo pacientes referidos con estado de cuenta pendiente
+                👨‍⚕️ Solo pacientes con médico y estado de cuenta pendiente
               </p>
             </div>
 
@@ -222,7 +222,7 @@ export const CuadreQuincenalPage: React.FC<CuadreQuincenalPageProps> = ({ onBack
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h4 className="font-semibold text-blue-800 mb-2">ℹ️ Información</h4>
             <ul className="text-sm text-blue-700 space-y-1">
-              <li>• El cuadre incluye solo pacientes con médico referente</li>
+              <li>• El cuadre incluye pacientes con médico referente o recomendado</li>
               <li>• Solo muestra estados de cuenta pendientes de pago</li>
               <li>• Se genera un reporte separado por cada médico</li>
               <li>• El archivo Excel incluye logo CONRAD y formato profesional</li>

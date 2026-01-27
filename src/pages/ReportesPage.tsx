@@ -92,6 +92,14 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
         return;
       }
 
+      // ✅ DEBUG: Ver datos de la primera consulta
+      console.log('=== DEBUG REPORTE ===');
+      console.log('Primera consulta completa:', consultas[0]);
+      console.log('medico_recomendado:', consultas[0].medico_recomendado);
+      console.log('sin_informacion_medico:', consultas[0].sin_informacion_medico);
+      console.log('medicos:', consultas[0].medicos);
+      console.log('====================');
+
       showToast('Generando archivo Excel...', 'info');
 
       // Generar Excel directamente en el navegador
