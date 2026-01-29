@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Save, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Save, AlertCircle, Plus, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { generarCuadreExcel } from '../utils/cuadre-excel-generator';
@@ -33,6 +33,12 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const [transferenciaContado, setTransferenciaContado] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [mostrarCuadre, setMostrarCuadre] = useState(false);
+  
+  // Estados para gastos del día
+  const [gastos, setGastos] = useState<any[]>([]);
+  const [showModalGasto, setShowModalGasto] = useState(false);
+  const [conceptoGasto, setConceptoGasto] = useState('');
+  const [montoGasto, setMontoGasto] = useState('');
 
   useEffect(() => {
     cargarCuadre();
@@ -124,11 +130,74 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       }) || [];
       
       setDetalles(detallesConInfo);
+      
+      // Cargar gastos del día
+      cargarGastos();
     } catch (error) {
       console.error('Error al cargar cuadre:', error);
       alert('Error al cargar el cuadre diario');
     }
     setLoading(false);
+  };
+
+  const cargarGastos = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('gastos_diarios')
+        .select('*')
+        .eq('fecha', fecha)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setGastos(data || []);
+    } catch (error) {
+      console.error('Error al cargar gastos:', error);
+    }
+  };
+
+  const agregarGasto = async () => {
+    if (!conceptoGasto.trim() || !montoGasto) {
+      alert('Complete todos los campos del gasto');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('gastos_diarios')
+        .insert([{
+          fecha,
+          concepto: conceptoGasto,
+          monto: parseFloat(montoGasto)
+        }]);
+      
+      if (error) throw error;
+      
+      setConceptoGasto('');
+      setMontoGasto('');
+      setShowModalGasto(false);
+      cargarGastos();
+      alert('Gasto agregado exitosamente');
+    } catch (error) {
+      console.error('Error al agregar gasto:', error);
+      alert('Error al agregar gasto');
+    }
+  };
+
+  const eliminarGasto = async (id: string) => {
+    if (!confirm('¿Eliminar este gasto?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('gastos_diarios')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      cargarGastos();
+    } catch (error) {
+      console.error('Error al eliminar gasto:', error);
+      alert('Error al eliminar gasto');
+    }
   };
 
   const descargarCuadre = async (formato: 'csv' | 'pdf') => {
@@ -139,17 +208,17 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
     const efectivoContadoNum = parseFloat(efectivoContado);
     const tarjetaContadoNum = parseFloat(tarjetaContado);
-    const transferenciaContadoNum = parseFloat(transferenciaContado);
+    const depositadoContadoNum = parseFloat(transferenciaContado); // Reutilizamos el campo
 
     const diferencias = {
       efectivo: calcularDiferencia(efectivoEsperado, efectivoContadoNum),
       tarjeta: calcularDiferencia(tarjetaEsperada, tarjetaContadoNum),
-      transferencia: calcularDiferencia(transferenciaEsperada, transferenciaContadoNum)
+      depositado: calcularDiferencia(depositadoEsperado, depositadoContadoNum)
     };
 
     const cuadreCorrecto = Math.abs(diferencias.efectivo) < 0.01 && 
                            Math.abs(diferencias.tarjeta) < 0.01 && 
-                           Math.abs(diferencias.transferencia) < 0.01;
+                           Math.abs(diferencias.depositado) < 0.01;
 
     const fechaFormateada = format(new Date(fecha + 'T12:00:00'), 'dd/MM/yyyy');
     const horaActual = format(new Date(), 'HH:mm');
@@ -165,8 +234,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         efectivoContado: efectivoContadoNum,
         tarjetaEsperada,
         tarjetaContado: tarjetaContadoNum,
-        transferenciaEsperada,
-        transferenciaContado: transferenciaContadoNum,
+        transferenciaEsperada: depositadoEsperado, // Ahora es depositado
+        transferenciaContado: depositadoContadoNum, // Ahora es depositado
         diferencias,
         cuadreCorrecto,
         observaciones,
@@ -351,12 +420,12 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           </td>
         </tr>
         <tr>
-          <td><strong>🏦 Transferencia</strong></td>
-          <td style="text-align: right;">Q ${transferenciaEsperada.toFixed(2)}</td>
-          <td style="text-align: right;">Q ${transferenciaContadoNum.toFixed(2)}</td>
-          <td style="text-align: right;">Q ${diferencias.transferencia.toFixed(2)}</td>
-          <td style="text-align: center;" class="${Math.abs(diferencias.transferencia) < 0.01 ? 'status-ok' : 'status-diff'}">
-            ${Math.abs(diferencias.transferencia) < 0.01 ? '✅ OK' : '⚠️ DIFERENCIA'}
+          <td><strong>💰 Depositado</strong></td>
+          <td style="text-align: right;">Q ${depositadoEsperado.toFixed(2)}</td>
+          <td style="text-align: right;">Q ${depositadoContadoNum.toFixed(2)}</td>
+          <td style="text-align: right;">Q ${diferencias.depositado.toFixed(2)}</td>
+          <td style="text-align: center;" class="${Math.abs(diferencias.depositado) < 0.01 ? 'status-ok' : 'status-diff'}">
+            ${Math.abs(diferencias.depositado) < 0.01 ? '✅ OK' : '⚠️ DIFERENCIA'}
           </td>
         </tr>
       </tbody>
@@ -426,7 +495,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       efectivo: 'Efectivo',
       tarjeta: 'Tarjeta',
       transferencia: 'Transferencia',
-      efectivo_facturado: 'Efectivo Facturado',
+      efectivo_facturado: 'Depósito',
       estado_cuenta: 'Estado de Cuenta'
     };
     return formas[forma] || forma;
@@ -436,22 +505,29 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     return contado - esperado;
   };
 
-  const efectivoEsperado = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo')?.total || 0) +
-                           (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo_facturado')?.total || 0);
+  // Calcular total de gastos
+  const totalGastos = gastos.reduce((sum, g) => sum + parseFloat(g.monto || 0), 0);
+
+  // Efectivo esperado MENOS gastos del día (solo efectivo, sin facturado)
+  const efectivoEsperado = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo')?.total || 0) - totalGastos;
+  
+  // Depositado incluye efectivo_facturado Y transferencia
+  const depositadoEsperado = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo_facturado')?.total || 0) +
+                              (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'transferencia')?.total || 0);
+  
   const tarjetaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'tarjeta')?.total || 0;
-  const transferenciaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'transferencia')?.total || 0;
 
   const efectivoContadoNum = parseFloat(efectivoContado) || 0;
+  const depositadoContadoNum = parseFloat(transferenciaContado) || 0; // Reutilizamos este campo para depositado
   const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
-  const transferenciaContadoNum = parseFloat(transferenciaContado) || 0;
 
   const diferenciaEfectivo = calcularDiferencia(efectivoEsperado, efectivoContadoNum);
+  const diferenciaDepositado = calcularDiferencia(depositadoEsperado, depositadoContadoNum);
   const diferenciaTarjeta = calcularDiferencia(tarjetaEsperada, tarjetaContadoNum);
-  const diferenciaTransferencia = calcularDiferencia(transferenciaEsperada, transferenciaContadoNum);
 
   const cuadreCorrecto = Math.abs(diferenciaEfectivo) < 0.01 && 
-                          Math.abs(diferenciaTarjeta) < 0.01 && 
-                          Math.abs(diferenciaTransferencia) < 0.01;
+                         Math.abs(diferenciaDepositado) < 0.01 &&
+                         Math.abs(diferenciaTarjeta) < 0.01;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -537,6 +613,64 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
               </div>
             </div>
 
+            {/* Gastos del Día */}
+            <div className="card mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Gastos del Día</h3>
+                <button
+                  onClick={() => setShowModalGasto(true)}
+                  className="btn-primary flex items-center gap-2"
+                >
+                  <Plus size={18} />
+                  Agregar Gasto
+                </button>
+              </div>
+
+              {gastos.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No hay gastos registrados</p>
+              ) : (
+                <div className="space-y-2">
+                  {gastos.map(gasto => (
+                    <div key={gasto.id} className="flex justify-between items-center p-3 bg-red-50 border border-red-200 rounded">
+                      <div>
+                        <div className="font-medium">{gasto.concepto}</div>
+                        <div className="text-sm text-gray-600">
+                          {(() => {
+                            const fecha = new Date(gasto.created_at);
+                            // Convertir a hora Guatemala (UTC-6)
+                            const horaGT = new Date(fecha.getTime() - (6 * 60 * 60 * 1000));
+                            return horaGT.toLocaleTimeString('es-GT', { 
+                              hour: '2-digit', 
+                              minute: '2-digit',
+                              hour12: true
+                            });
+                          })()}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-lg font-bold text-red-600">
+                          - Q {gasto.monto.toFixed(2)}
+                        </div>
+                        <button
+                          onClick={() => eliminarGasto(gasto.id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex justify-between items-center p-3 bg-red-100 border-2 border-red-400 rounded font-bold">
+                    <span>Total Gastos:</span>
+                    <span className="text-red-700">
+                      - Q {gastos.reduce((sum, g) => sum + g.monto, 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Cuadre de caja */}
             {mostrarCuadre && cuadre && cuadre.total_consultas > 0 && (
               <div className="card mb-6 bg-yellow-50">
@@ -594,11 +728,11 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     )}
                   </div>
 
-                  {/* Transferencia */}
+                  {/* Depositado (incluye efectivo_facturado + transferencia) */}
                   <div className="bg-white p-4 rounded-lg">
-                    <label className="label">🏦 Transferencia Contado</label>
+                    <label className="label">💰 Depositado Contado</label>
                     <div className="text-sm text-gray-600 mb-2">
-                      Esperado: Q {transferenciaEsperada.toFixed(2)}
+                      Esperado: Q {depositadoEsperado.toFixed(2)}
                     </div>
                     <input
                       type="number"
@@ -610,9 +744,9 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     />
                     {transferenciaContado && (
                       <div className={`mt-2 text-sm font-semibold ${
-                        Math.abs(diferenciaTransferencia) < 0.01 ? 'text-green-600' : 'text-red-600'
+                        Math.abs(diferenciaDepositado) < 0.01 ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        Diferencia: Q {diferenciaTransferencia.toFixed(2)}
+                        Diferencia: Q {diferenciaDepositado.toFixed(2)}
                       </div>
                     )}
                   </div>
@@ -702,6 +836,14 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <td className="px-4 py-2">
                             <div>
                               {getFormaPagoNombre(detalle.forma_pago)}
+                              
+                              {/* Indicador voucher pendiente */}
+                              {detalle.forma_pago === 'tarjeta' && !detalle.numero_voucher && (
+                                <div className="text-xs text-yellow-600 font-semibold">
+                                  ⚠️ Voucher Pendiente
+                                </div>
+                              )}
+                              
                               {detalle.numero_transferencia && (
                                 <div className="text-xs text-gray-600">Trans: {detalle.numero_transferencia}</div>
                               )}
@@ -723,6 +865,68 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           </>
         )}
       </div>
+
+      {/* Modal Agregar Gasto */}
+      {showModalGasto && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Agregar Gasto del Día</h2>
+              <button
+                onClick={() => {
+                  setShowModalGasto(false);
+                  setConceptoGasto('');
+                  setMontoGasto('');
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="label">Concepto *</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Ej: Diesel para transporte"
+                  value={conceptoGasto}
+                  onChange={(e) => setConceptoGasto(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="label">Monto (Q) *</label>
+                <input
+                  type="number"
+                  className="input-field"
+                  placeholder="0.00"
+                  step="0.01"
+                  value={montoGasto}
+                  onChange={(e) => setMontoGasto(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end mt-6">
+              <button
+                onClick={() => {
+                  setShowModalGasto(false);
+                  setConceptoGasto('');
+                  setMontoGasto('');
+                }}
+                className="btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button onClick={agregarGasto} className="btn-primary">
+                Agregar Gasto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,0 +1,411 @@
+import React, { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
+import { Autocomplete } from './Autocomplete';
+import { Paciente, Medico } from '../types';
+import { departamentosGuatemala, municipiosGuatemala } from '../data/guatemala';
+import { supabase } from '../lib/supabase';
+
+interface NuevoPacienteModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (paciente: Paciente, medico: Medico | null, sinInfoMedico: boolean) => void;
+}
+
+export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
+  isOpen,
+  onClose,
+  onSave
+}) => {
+  // Estado del paciente
+  const [nombrePaciente, setNombrePaciente] = useState('');
+  const [edadPaciente, setEdadPaciente] = useState('');
+  const [tipoEdad, setTipoEdad] = useState<'años' | 'meses' | 'días'>('días'); // Por defecto días
+  const [telefonoPaciente, setTelefonoPaciente] = useState('');
+  const [departamentoPaciente, setDepartamentoPaciente] = useState('');
+  const [municipioPaciente, setMunicipioPaciente] = useState('');
+
+  // Estado del médico
+  const [esReferente, setEsReferente] = useState(true);
+  const [sinInformacion, setSinInformacion] = useState(false);
+  const [nombreMedico, setNombreMedico] = useState('');
+  const [telefonoMedico, setTelefonoMedico] = useState('');
+  const [departamentoMedico, setDepartamentoMedico] = useState('');
+  const [municipioMedico, setMunicipioMedico] = useState('');
+  const [direccionMedico, setDireccionMedico] = useState('');
+
+  // Lista de médicos referentes
+  const [medicosReferentes, setMedicosReferentes] = useState<Medico[]>([]);
+  const [medicoSeleccionado, setMedicoSeleccionado] = useState<Medico | null>(null);
+
+  // Cargar médicos referentes
+  useEffect(() => {
+    if (isOpen) {
+      cargarMedicosReferentes();
+    }
+  }, [isOpen]);
+
+  const cargarMedicosReferentes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('medicos')
+        .select('*')
+        .eq('es_referente', true)
+        .eq('activo', true);
+
+      if (error) throw error;
+      setMedicosReferentes(data || []);
+    } catch (error) {
+      console.error('Error al cargar médicos referentes:', error);
+    }
+  };
+
+  // Filtrar municipios según departamento seleccionado
+  const municipiosPacienteFiltrados = municipiosGuatemala.filter(
+    m => m.departamento_id === departamentoPaciente
+  );
+
+  const municipiosMedicoFiltrados = municipiosGuatemala.filter(
+    m => m.departamento_id === departamentoMedico
+  );
+
+  // Manejar selección de médico referente
+  const handleMedicoReferenteChange = (medicoId: string) => {
+    const medico = medicosReferentes.find(m => m.id === medicoId);
+    if (medico) {
+      setMedicoSeleccionado(medico);
+      setNombreMedico(medico.id || '');
+      setTelefonoMedico(medico.telefono);
+      setDepartamentoMedico(medico.departamento);
+      setMunicipioMedico(medico.municipio);
+      setDireccionMedico(medico.direccion);
+    }
+  };
+
+  // Manejar cambio de "Sin información"
+  const handleSinInformacionChange = (checked: boolean) => {
+    setSinInformacion(checked);
+    if (checked) {
+      setNombreMedico('');
+      setTelefonoMedico('');
+      setDepartamentoMedico('');
+      setMunicipioMedico('');
+      setDireccionMedico('');
+    }
+  };
+
+  // Resetear formulario
+  const resetForm = () => {
+    setNombrePaciente('');
+    setEdadPaciente('');
+    setTipoEdad('días'); // Reset a días por defecto
+    setTelefonoPaciente('');
+    setDepartamentoPaciente('');
+    setMunicipioPaciente('');
+    setEsReferente(true);
+    setSinInformacion(false);
+    setNombreMedico('');
+    setTelefonoMedico('');
+    setDepartamentoMedico('');
+    setMunicipioMedico('');
+    setDireccionMedico('');
+    setMedicoSeleccionado(null);
+  };
+
+  // Guardar
+  const handleGuardar = () => {
+    // Validar datos del paciente (con trim para evitar espacios)
+    if (!nombrePaciente.trim() || !edadPaciente || !telefonoPaciente.trim() || !departamentoPaciente || !municipioPaciente) {
+      alert('Por favor complete todos los campos del paciente');
+      return;
+    }
+
+    // Si tiene nombre de médico, exigir que complete datos o marque "sin información"
+    const tieneMedico = nombreMedico.trim() !== '';
+    
+    if (tieneMedico && !sinInformacion) {
+      if (!telefonoMedico.trim() || !departamentoMedico || !municipioMedico || !direccionMedico.trim()) {
+        alert('Por favor complete todos los campos del médico o marque "Sin información"');
+        return;
+      }
+    }
+
+    const paciente: Paciente = {
+      nombre: nombrePaciente.trim(),
+      edad: `${edadPaciente} ${tipoEdad}`, // Ejemplo: "2 meses" o "15 días"
+      telefono: telefonoPaciente.trim(),
+      departamento: departamentoPaciente,
+      municipio: municipioPaciente
+    };
+
+    let medico: Medico | null = null;
+    
+    // Si tiene nombre de médico (independiente de si es "referente" o no)
+    if (tieneMedico && !sinInformacion) {
+      if (esReferente && medicoSeleccionado) {
+        medico = medicoSeleccionado;
+      } else {
+        medico = {
+          nombre: nombreMedico.trim(),
+          telefono: telefonoMedico.trim(),
+          departamento: departamentoMedico,
+          municipio: municipioMedico,
+          direccion: direccionMedico.trim(),
+          es_referente: esReferente // Guardar como referente solo si checkbox está marcado
+        };
+      }
+    }
+
+    // IMPORTANTE: Si tiene nombre de médico, siempre mostrar en impresión
+    const sinInfoParaImprimir = !tieneMedico || sinInformacion;
+    
+    onSave(paciente, medico, sinInfoParaImprimir);
+    resetForm();
+  };
+
+  // Cancelar
+  const handleCancelar = () => {
+    resetForm();
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-800">Nuevo Paciente</h2>
+          <button
+            onClick={handleCancelar}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="p-6 grid md:grid-cols-2 gap-6">
+          {/* Sección Paciente */}
+          <div className="card">
+            <h3 className="text-xl font-semibold mb-4 text-blue-700">Datos del Paciente</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="label">Nombre <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={nombrePaciente}
+                  onChange={(e) => setNombrePaciente(e.target.value)}
+                  placeholder="Nombre completo del paciente"
+                />
+              </div>
+
+              <div>
+                <label className="label">Edad <span className="text-red-500">*</span></label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    className="input-field flex-1"
+                    value={edadPaciente}
+                    onChange={(e) => setEdadPaciente(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Edad"
+                    min="0"
+                    max="120"
+                  />
+                  <select
+                    className="input-field w-32"
+                    value={tipoEdad}
+                    onChange={(e) => setTipoEdad(e.target.value as 'años' | 'meses' | 'días')}
+                  >
+                    <option value="días">Días</option>
+                    <option value="meses">Meses</option>
+                    <option value="años">Años</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Número de Teléfono <span className="text-red-500">*</span></label>
+                <input
+                  type="tel"
+                  className="input-field"
+                  value={telefonoPaciente}
+                  onChange={(e) => setTelefonoPaciente(e.target.value.replace(/\D/g, ''))}
+                  placeholder="12345678"
+                  maxLength={8}
+                />
+              </div>
+
+              <Autocomplete
+                label="Departamento"
+                options={departamentosGuatemala}
+                value={departamentoPaciente}
+                onChange={(val) => {
+                  setDepartamentoPaciente(val);
+                  setMunicipioPaciente('');
+                }}
+                placeholder="Seleccione departamento"
+                required
+              />
+
+              <Autocomplete
+                label="Municipio"
+                options={municipiosPacienteFiltrados}
+                value={municipioPaciente}
+                onChange={setMunicipioPaciente}
+                placeholder="Seleccione municipio"
+                disabled={!departamentoPaciente}
+                required
+              />
+            </div>
+          </div>
+
+          {/* Sección Médico */}
+          <div className="card">
+            <h3 className="text-xl font-semibold mb-4 text-green-700">Datos del Médico</h3>
+            
+            <div className="space-y-4">
+              <div className="flex gap-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    checked={esReferente}
+                    onChange={() => {
+                      setEsReferente(true);
+                      setNombreMedico('');
+                      setTelefonoMedico('');
+                      setDepartamentoMedico('');
+                      setMunicipioMedico('');
+                      setDireccionMedico('');
+                    }}
+                    className="mr-2"
+                    disabled={sinInformacion}
+                  />
+                  Referente
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    checked={!esReferente}
+                    onChange={() => {
+                      setEsReferente(false);
+                      setMedicoSeleccionado(null);
+                      setNombreMedico('');
+                      setTelefonoMedico('');
+                      setDepartamentoMedico('');
+                      setMunicipioMedico('');
+                      setDireccionMedico('');
+                    }}
+                    className="mr-2"
+                    disabled={sinInformacion}
+                  />
+                  No Referente
+                </label>
+              </div>
+
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="sinInfo"
+                  checked={sinInformacion}
+                  onChange={(e) => handleSinInformacionChange(e.target.checked)}
+                  className="mr-2"
+                />
+                <label htmlFor="sinInfo" className="text-sm font-medium text-gray-700">
+                  Sin información
+                </label>
+              </div>
+
+              {esReferente && !sinInformacion ? (
+                <Autocomplete
+                  label="Nombre del Médico"
+                  options={medicosReferentes.map(m => ({ id: m.id || '', nombre: m.nombre }))}
+                  value={nombreMedico}
+                  onChange={handleMedicoReferenteChange}
+                  placeholder="Buscar médico referente"
+                  disabled={sinInformacion}
+                  required={!sinInformacion}
+                />
+              ) : (
+                <div>
+                  <label className="label">
+                    Nombre {!sinInformacion && <span className="text-red-500">*</span>}
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={nombreMedico}
+                    onChange={(e) => setNombreMedico(e.target.value)}
+                    placeholder="Nombre del médico"
+                    disabled={sinInformacion}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="label">
+                  Número de Teléfono {!sinInformacion && <span className="text-red-500">*</span>}
+                </label>
+                <input
+                  type="tel"
+                  className="input-field"
+                  value={telefonoMedico}
+                  onChange={(e) => setTelefonoMedico(e.target.value.replace(/\D/g, ''))}
+                  placeholder="12345678"
+                  disabled={sinInformacion || (esReferente && medicoSeleccionado !== null)}
+                  maxLength={8}
+                />
+              </div>
+
+              <Autocomplete
+                label="Departamento"
+                options={departamentosGuatemala}
+                value={departamentoMedico}
+                onChange={(val) => {
+                  setDepartamentoMedico(val);
+                  setMunicipioMedico('');
+                }}
+                placeholder="Seleccione departamento"
+                disabled={sinInformacion || (esReferente && medicoSeleccionado !== null)}
+                required={!sinInformacion}
+              />
+
+              <Autocomplete
+                label="Municipio"
+                options={municipiosMedicoFiltrados}
+                value={municipioMedico}
+                onChange={setMunicipioMedico}
+                placeholder="Seleccione municipio"
+                disabled={sinInformacion || !departamentoMedico || (esReferente && medicoSeleccionado !== null)}
+                required={!sinInformacion}
+              />
+
+              <div>
+                <label className="label">
+                  Dirección {!sinInformacion && <span className="text-red-500">*</span>}
+                </label>
+                <textarea
+                  className="input-field"
+                  value={direccionMedico}
+                  onChange={(e) => setDireccionMedico(e.target.value)}
+                  placeholder="Dirección completa"
+                  disabled={sinInformacion || (esReferente && medicoSeleccionado !== null)}
+                  rows={3}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 bg-gray-50 px-6 py-4 flex justify-end gap-3 border-t">
+          <button onClick={handleCancelar} className="btn-secondary">
+            Cancelar
+          </button>
+          <button onClick={handleGuardar} className="btn-primary">
+            Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

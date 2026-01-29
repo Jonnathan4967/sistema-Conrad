@@ -1,9 +1,20 @@
 import { format } from 'date-fns';
 
+// Función para formatear edad correctamente
+const formatearEdad = (paciente: any): string => {
+  if (paciente.edad_valor && paciente.edad_tipo) {
+    return `${paciente.edad_valor} ${paciente.edad_tipo}`;
+  }
+  return `${paciente.edad} años`;
+};
+
 interface DatosRecibo {
+  numeroPaciente?: number; // Número secuencial del paciente
   paciente: {
     nombre: string;
     edad: number;
+    edad_valor?: number;
+    edad_tipo?: 'días' | 'meses' | 'años';
     telefono: string;
   };
   medico?: {
@@ -24,7 +35,7 @@ export const generarReciboCompleto = (datos: DatosRecibo) => {
   const formaPagoTexto = datos.formaPago === 'efectivo' ? 'EFECTIVO' : 
                           datos.formaPago === 'tarjeta' ? 'TARJETA' :
                           datos.formaPago === 'transferencia' ? 'TRANSFERENCIA' : 
-                          datos.formaPago === 'efectivo_facturado' ? 'EFECTIVO FACTURADO' :
+                          datos.formaPago === 'efectivo_facturado' ? 'DEPÓSITO' :
                           'CUENTA POR COBRAR';
 
   return `
@@ -108,6 +119,7 @@ export const generarReciboCompleto = (datos: DatosRecibo) => {
           <div style="font-weight: bold; font-size: 12pt;">CONRAD</div>
           <div style="font-size: 10pt;">Centro de Diagnóstico</div>
           <div style="font-size: 9pt;">Recibo de Consulta</div>
+          ${datos.numeroPaciente ? `<div style="font-size: 9pt; margin-top: 2mm;">PACIENTE #${datos.numeroPaciente}</div>` : ''}
         </div>
 
         <div class="fecha-hora">
@@ -122,7 +134,7 @@ export const generarReciboCompleto = (datos: DatosRecibo) => {
 
         <div class="row">
           <span class="label">EDAD:</span>
-          <span>${datos.paciente.edad} años</span>
+          <span>${formatearEdad(datos.paciente)}</span>
         </div>
 
         <div class="row">
@@ -263,6 +275,7 @@ export const generarReciboMedico = (datos: DatosRecibo) => {
           <div style="font-weight: bold; font-size: 12pt;">CONRAD</div>
           <div style="font-size: 10pt;">Centro de Diagnóstico</div>
           <div style="font-size: 9pt;">Orden para Médico</div>
+          ${datos.numeroPaciente ? `<div style="font-size: 9pt; margin-top: 2mm;">PACIENTE #${datos.numeroPaciente}</div>` : ''}
         </div>
 
         <div class="fecha-hora">
@@ -276,7 +289,7 @@ export const generarReciboMedico = (datos: DatosRecibo) => {
 
         <div class="row">
           <span class="label">EDAD:</span>
-          <span>${datos.paciente.edad} años</span>
+          <span>${formatearEdad(datos.paciente)}</span>
         </div>
 
         <div class="row">
@@ -328,5 +341,14 @@ export const abrirRecibo = (html: string, titulo: string) => {
   if (ventana) {
     ventana.document.write(html);
     ventana.document.close();
+    
+    // Esperar a que se cargue el contenido antes de imprimir
+    ventana.onload = () => {
+      setTimeout(() => {
+        ventana.print();
+      }, 250);
+    };
+  } else {
+    alert('Por favor permita ventanas emergentes para imprimir el recibo');
   }
 };

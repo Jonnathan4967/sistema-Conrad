@@ -18,7 +18,7 @@ interface CuadreDatos {
   diferencias: {
     efectivo: number;
     tarjeta: number;
-    transferencia: number;
+    depositado: number; // Cambio de transferencia a depositado
   };
   cuadreCorrecto: boolean;
   observaciones?: string;
@@ -154,7 +154,7 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
   const datosTabla = [
     ['Efectivo', datos.efectivoEsperado, datos.efectivoContado, datos.diferencias.efectivo],
     ['Tarjeta', datos.tarjetaEsperada, datos.tarjetaContado, datos.diferencias.tarjeta],
-    ['Transferencia', datos.transferenciaEsperada, datos.transferenciaContado, datos.diferencias.transferencia]
+    ['Transferencia', datos.transferenciaEsperada, datos.transferenciaContado, datos.diferencias.depositado]
   ];
 
   datosTabla.forEach(fila => {

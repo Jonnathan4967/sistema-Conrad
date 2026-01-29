@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Edit2, Trash2, Save, X } from 'lucide-react';
+import { ArrowLeft, Plus, Edit2, Trash2, Save, X, FileSpreadsheet } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Autocomplete } from '../components/Autocomplete';
 import { departamentosGuatemala, municipiosGuatemala } from '../data/guatemala';
@@ -23,6 +23,11 @@ export const ReferentesPage: React.FC<ReferentesPageProps> = ({ onBack }) => {
   const [medicos, setMedicos] = useState<Medico[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Medico | null>(null);
+  
+  // Filtros de búsqueda
+  const [filtroNombre, setFiltroNombre] = useState('');
+  const [filtroDepartamento, setFiltroDepartamento] = useState('');
+  const [filtroMunicipio, setFiltroMunicipio] = useState('');
   
   // Formulario
   const [nombre, setNombre] = useState('');
@@ -105,16 +110,137 @@ export const ReferentesPage: React.FC<ReferentesPageProps> = ({ onBack }) => {
     setDireccion('');
   };
 
-  const municipiosFiltrados = municipiosGuatemala.filter(
-    m => m.departamento_id === departamento
-  );
-
   const getDepartamentoNombre = (id: string) => {
     return departamentosGuatemala.find(d => d.id === id)?.nombre || id;
   };
 
   const getMunicipioNombre = (id: string) => {
     return municipiosGuatemala.find(m => m.id === id)?.nombre || id;
+  };
+
+  // Filtrar médicos según los criterios de búsqueda
+  const medicosFiltrados = medicos.filter(medico => {
+    const nombreMatch = medico.nombre.toLowerCase().includes(filtroNombre.toLowerCase());
+    const departamentoMatch = filtroDepartamento === '' || medico.departamento === filtroDepartamento;
+    const municipioMatch = filtroMunicipio === '' || medico.municipio === filtroMunicipio;
+    return nombreMatch && departamentoMatch && municipioMatch;
+  });
+
+  // Obtener municipios según el contexto (filtro o formulario)
+  const municipiosFiltradosFiltro = filtroDepartamento 
+    ? municipiosGuatemala.filter(m => m.departamento_id === filtroDepartamento)
+    : municipiosGuatemala;
+
+  const municipiosFiltradosFormulario = municipiosGuatemala.filter(
+    m => m.departamento_id === departamento
+  );
+
+  // Función para exportar a Excel
+  const exportarExcel = async () => {
+    try {
+      const ExcelJS = await import('exceljs');
+      const workbook = new ExcelJS.default.Workbook();
+      const worksheet = workbook.addWorksheet('Médicos Referentes');
+
+      // Configurar anchos de columna
+      worksheet.columns = [
+        { width: 5 },   // #
+        { width: 35 },  // Nombre
+        { width: 15 },  // Teléfono
+        { width: 20 },  // Departamento
+        { width: 20 },  // Municipio
+        { width: 40 }   // Dirección
+      ];
+
+      // Título
+      worksheet.mergeCells('A1:F1');
+      const cellTitulo = worksheet.getCell('A1');
+      cellTitulo.value = 'MÉDICOS REFERENTES - CONRAD';
+      cellTitulo.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+      cellTitulo.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4472C4' }
+      };
+      cellTitulo.alignment = { horizontal: 'center', vertical: 'middle' };
+      cellTitulo.border = {
+        top: { style: 'thin' },
+        bottom: { style: 'thin' },
+        left: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      worksheet.getRow(1).height = 30;
+
+      // Headers
+      const headers = ['#', 'NOMBRE', 'TELÉFONO', 'DEPARTAMENTO', 'MUNICIPIO', 'DIRECCIÓN'];
+      worksheet.getRow(2).values = headers;
+      worksheet.getRow(2).height = 25;
+      
+      headers.forEach((header, idx) => {
+        const cell = worksheet.getCell(2, idx + 1);
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF5B9BD5' }
+        };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin' },
+          bottom: { style: 'thin' },
+          left: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      });
+
+      // Datos
+      medicosFiltrados.forEach((medico, idx) => {
+        const fila = idx + 3;
+        const valores = [
+          idx + 1,
+          medico.nombre.toUpperCase(),
+          medico.telefono,
+          getDepartamentoNombre(medico.departamento),
+          getMunicipioNombre(medico.municipio),
+          medico.direccion
+        ];
+
+        worksheet.getRow(fila).values = valores;
+
+        valores.forEach((valor, colIdx) => {
+          const cell = worksheet.getCell(fila, colIdx + 1);
+          cell.font = { name: 'Calibri', size: 10 };
+          
+          if (colIdx === 0) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else {
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          }
+
+          cell.border = {
+            top: { style: 'thin' },
+            bottom: { style: 'thin' },
+            left: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+      });
+
+      // Generar y descargar
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Medicos_Referentes_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error al exportar:', error);
+      alert('Error al generar archivo Excel');
+    }
   };
 
   return (
@@ -132,14 +258,73 @@ export const ReferentesPage: React.FC<ReferentesPageProps> = ({ onBack }) => {
         <div className="card">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold">Lista de Médicos Referentes</h2>
-            <button onClick={() => abrirModal()} className="btn-primary flex items-center gap-2">
-              <Plus size={18} />
-              Nuevo Médico Referente
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={exportarExcel} 
+                className="btn-secondary flex items-center gap-2"
+              >
+                <FileSpreadsheet size={18} />
+                Exportar Excel
+              </button>
+              <button onClick={() => abrirModal()} className="btn-primary flex items-center gap-2">
+                <Plus size={18} />
+                Nuevo Médico Referente
+              </button>
+            </div>
+          </div>
+
+          {/* Filtros de búsqueda */}
+          <div className="grid md:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+            <div>
+              <label className="label">Buscar por Nombre</label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="Nombre del médico..."
+                value={filtroNombre}
+                onChange={(e) => setFiltroNombre(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">Filtrar por Departamento</label>
+              <select
+                className="input-field"
+                value={filtroDepartamento}
+                onChange={(e) => {
+                  setFiltroDepartamento(e.target.value);
+                  setFiltroMunicipio(''); // Limpiar municipio al cambiar departamento
+                }}
+              >
+                <option value="">Todos los departamentos</option>
+                {departamentosGuatemala.map(d => (
+                  <option key={d.id} value={d.id}>{d.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Filtrar por Municipio</label>
+              <select
+                className="input-field"
+                value={filtroMunicipio}
+                onChange={(e) => setFiltroMunicipio(e.target.value)}
+                disabled={!filtroDepartamento}
+              >
+                <option value="">
+                  {filtroDepartamento ? 'Todos los municipios' : 'Seleccione departamento primero'}
+                </option>
+                {municipiosFiltradosFiltro.map(m => (
+                  <option key={m.id} value={m.id}>{m.nombre}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="mb-4 text-sm text-gray-600">
+            Mostrando {medicosFiltrados.length} de {medicos.length} médicos referentes
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {medicos.map(medico => (
+            {medicosFiltrados.map(medico => (
               <div key={medico.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
                 <div className="flex justify-between items-start mb-3">
                   <h3 className="font-bold text-lg">{medico.nombre}</h3>
@@ -163,10 +348,19 @@ export const ReferentesPage: React.FC<ReferentesPageProps> = ({ onBack }) => {
             ))}
           </div>
 
-          {medicos.length === 0 && (
+          {medicosFiltrados.length === 0 && (
             <div className="text-center py-12 text-gray-500">
-              <p className="text-lg">No hay médicos referentes registrados</p>
-              <p className="text-sm">Haz click en "Nuevo Médico Referente" para agregar uno</p>
+              {medicos.length === 0 ? (
+                <>
+                  <p className="text-lg">No hay médicos referentes registrados</p>
+                  <p className="text-sm">Haz click en "Nuevo Médico Referente" para agregar uno</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg">No se encontraron médicos con los filtros aplicados</p>
+                  <p className="text-sm">Intenta con otros criterios de búsqueda</p>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -224,7 +418,7 @@ export const ReferentesPage: React.FC<ReferentesPageProps> = ({ onBack }) => {
               <div className="md:col-span-2">
                 <Autocomplete
                   label="Municipio"
-                  options={municipiosFiltrados}
+                  options={municipiosFiltradosFormulario}
                   value={municipio}
                   onChange={setMunicipio}
                   placeholder="Seleccione municipio"

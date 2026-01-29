@@ -22,6 +22,7 @@ export const AgregarEstudioModal: React.FC<AgregarEstudioModalProps> = ({
   const [subEstudioSeleccionado, setSubEstudioSeleccionado] = useState('');
   const [nuevosEstudios, setNuevosEstudios] = useState<any[]>([]);
   const [tipoCobro, setTipoCobro] = useState<TipoCobro>(consulta.tipo_cobro);
+  const [formaPago, setFormaPago] = useState<string>(consulta.forma_pago);
 
   useEffect(() => {
     cargarEstudios();
@@ -96,6 +97,14 @@ export const AgregarEstudioModal: React.FC<AgregarEstudioModalProps> = ({
     }
 
     try {
+      // Actualizar forma de pago de la consulta
+      const { error: errorConsulta } = await supabase
+        .from('consultas')
+        .update({ forma_pago: formaPago })
+        .eq('id', consulta.id);
+
+      if (errorConsulta) throw errorConsulta;
+
       // Insertar nuevos detalles marcados como adicionales
       const detalles = nuevosEstudios.map(e => ({
         consulta_id: consulta.id,
@@ -111,7 +120,7 @@ export const AgregarEstudioModal: React.FC<AgregarEstudioModalProps> = ({
 
       if (error) throw error;
 
-      alert('Estudios agregados exitosamente');
+      alert('Estudios agregados y forma de pago actualizada');
       
       // Preguntar si desea imprimir los estudios adicionales
       const deseaImprimir = confirm('¿Desea imprimir los estudios adicionales?');
@@ -221,6 +230,22 @@ export const AgregarEstudioModal: React.FC<AgregarEstudioModalProps> = ({
               Especial
             </button>
           </div>
+        </div>
+
+        {/* Selector de forma de pago */}
+        <div className="card mb-4">
+          <h3 className="text-sm font-semibold mb-3">Forma de Pago</h3>
+          <select
+            className="input-field"
+            value={formaPago}
+            onChange={(e) => setFormaPago(e.target.value)}
+          >
+            <option value="efectivo">Efectivo</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="estado_cuenta">Estado de Cuenta</option>
+            <option value="efectivo_facturado">Efectivo Facturado</option>
+          </select>
         </div>
 
         {/* Selector de estudios */}

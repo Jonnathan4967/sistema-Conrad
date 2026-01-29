@@ -3,6 +3,8 @@ export interface Paciente {
   id?: string;
   nombre: string;
   edad: number;
+  edad_valor?: number; // Valor original (15 días, 3 meses, etc)
+  edad_tipo?: 'días' | 'meses' | 'años'; // Tipo de edad
   telefono: string;
   departamento: string;
   municipio: string;

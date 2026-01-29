@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Trash2, Save, X, Users as UsersIcon } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Save, X, UsersIcon } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface Usuario {
+  id?: string;
   username: string;
   password: string;
   nombre: string;
+  activo?: boolean;
 }
 
 interface GestionUsuariosPageProps {
@@ -14,6 +17,7 @@ interface GestionUsuariosPageProps {
 export const GestionUsuariosPage: React.FC<GestionUsuariosPageProps> = ({ onBack }) => {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     username: '',
     password: '',
@@ -24,36 +28,59 @@ export const GestionUsuariosPage: React.FC<GestionUsuariosPageProps> = ({ onBack
     cargarUsuarios();
   }, []);
 
-  const cargarUsuarios = () => {
-    const stored = localStorage.getItem('conrad_users');
-    if (stored) {
-      setUsuarios(JSON.parse(stored));
+  const cargarUsuarios = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('usuarios')
+        .select('*')
+        .eq('activo', true)
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      setUsuarios(data || []);
+    } catch (error) {
+      console.error('Error al cargar usuarios:', error);
+      alert('❌ Error al cargar usuarios');
     }
   };
 
-  const guardarUsuarios = (nuevosUsuarios: Usuario[]) => {
-    localStorage.setItem('conrad_users', JSON.stringify(nuevosUsuarios));
-    setUsuarios(nuevosUsuarios);
-  };
-
-  const agregarUsuario = (e: React.FormEvent) => {
+  const agregarUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
     
-    // Validar que no exista el username
-    if (usuarios.some(u => u.username === formData.username)) {
-      alert('❌ El nombre de usuario ya existe');
-      return;
-    }
+    try {
+      // Validar que no exista el username
+      const { data: existente } = await supabase
+        .from('usuarios')
+        .select('username')
+        .eq('username', formData.username)
+        .single();
+      
+      if (existente) {
+        alert('❌ El nombre de usuario ya existe');
+        setLoading(false);
+        return;
+      }
 
-    const nuevosUsuarios = [...usuarios, formData];
-    guardarUsuarios(nuevosUsuarios);
-    
-    setFormData({ username: '', password: '', nombre: '' });
-    setShowModal(false);
-    alert('✅ Usuario agregado exitosamente');
+      const { error } = await supabase
+        .from('usuarios')
+        .insert([formData]);
+      
+      if (error) throw error;
+      
+      setFormData({ username: '', password: '', nombre: '' });
+      setShowModal(false);
+      alert('✅ Usuario agregado exitosamente');
+      cargarUsuarios();
+    } catch (error) {
+      console.error('Error al agregar usuario:', error);
+      alert('❌ Error al agregar usuario');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const eliminarUsuario = (username: string) => {
+  const eliminarUsuario = async (username: string, id: string) => {
     if (username === 'admin') {
       alert('❌ No puedes eliminar el usuario administrador');
       return;
@@ -61,9 +88,20 @@ export const GestionUsuariosPage: React.FC<GestionUsuariosPageProps> = ({ onBack
 
     if (!confirm(`¿Eliminar usuario "${username}"?`)) return;
 
-    const nuevosUsuarios = usuarios.filter(u => u.username !== username);
-    guardarUsuarios(nuevosUsuarios);
-    alert('✅ Usuario eliminado');
+    try {
+      const { error } = await supabase
+        .from('usuarios')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      alert('✅ Usuario eliminado');
+      cargarUsuarios();
+    } catch (error) {
+      console.error('Error al eliminar usuario:', error);
+      alert('❌ Error al eliminar usuario');
+    }
   };
 
   return (
@@ -136,7 +174,7 @@ export const GestionUsuariosPage: React.FC<GestionUsuariosPageProps> = ({ onBack
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       {usuario.username !== 'admin' && (
                         <button
-                          onClick={() => eliminarUsuario(usuario.username)}
+                          onClick={() => eliminarUsuario(usuario.username, usuario.id!)}
                           className="text-red-600 hover:text-red-800"
                           title="Eliminar usuario"
                         >
@@ -227,10 +265,11 @@ export const GestionUsuariosPage: React.FC<GestionUsuariosPageProps> = ({ onBack
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  disabled={loading}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
                   <Save size={16} />
-                  Guardar
+                  {loading ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </form>

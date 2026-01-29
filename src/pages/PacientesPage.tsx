@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Edit2, Trash2, Calendar, Printer, Plus, FileText } from 'lucide-react';
+import { ArrowLeft, Edit2, Trash2, Calendar, Printer, Plus, FileText, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { EditarPacienteModal } from '../components/EditarPacienteModal';
@@ -16,8 +16,11 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   const [loading, setLoading] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAgregarEstudioModal, setShowAgregarEstudioModal] = useState(false);
+  const [showEditVoucherModal, setShowEditVoucherModal] = useState(false);
   const [pacienteEditando, setPacienteEditando] = useState<any>(null);
   const [consultaSeleccionada, setConsultaSeleccionada] = useState<any>(null);
+  const [voucherEditando, setVoucherEditando] = useState('');
+  const [nitEditando, setNitEditando] = useState('');
 
   useEffect(() => {
     cargarConsultas();
@@ -35,7 +38,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           detalle_consultas(*, sub_estudios(nombre))
         `)
         .eq('fecha', fecha)
-        .order('created_at', { ascending: false });
+        .order('numero_paciente', { ascending: true }); // Ordenar por número de paciente ascendente
 
       if (error) throw error;
       setConsultas(data || []);
@@ -46,8 +49,8 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     setLoading(false);
   };
 
-  const eliminarConsulta = async (consultaId: string) => {
-    if (!confirm('¿Está seguro de eliminar esta consulta? Esta acción no se puede deshacer.')) {
+  const eliminarConsulta = async (consultaId: string, numeroEliminado: number) => {
+    if (!confirm('¿Está seguro de eliminar esta consulta? Los siguientes pacientes se renumerarán automáticamente.')) {
       return;
     }
 
@@ -68,11 +71,63 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
       if (errorConsulta) throw errorConsulta;
 
-      alert('Consulta eliminada exitosamente');
+      // Renumerar todos los pacientes posteriores (restar 1 a su número)
+      const { data: consultasPosteriores, error: errorConsultar } = await supabase
+        .from('consultas')
+        .select('id, numero_paciente')
+        .eq('fecha', fecha)
+        .gt('numero_paciente', numeroEliminado);
+
+      if (errorConsultar) throw errorConsultar;
+
+      // Actualizar cada consulta posterior
+      if (consultasPosteriores && consultasPosteriores.length > 0) {
+        for (const consulta of consultasPosteriores) {
+          const { error: errorActualizar } = await supabase
+            .from('consultas')
+            .update({ numero_paciente: consulta.numero_paciente - 1 })
+            .eq('id', consulta.id);
+          
+          if (errorActualizar) throw errorActualizar;
+        }
+      }
+
+      alert('Consulta eliminada y pacientes renumerados exitosamente');
       cargarConsultas();
     } catch (error) {
       console.error('Error al eliminar consulta:', error);
       alert('Error al eliminar consulta');
+    }
+  };
+
+  const eliminarEstudio = async (consultaId: string, detalleId: string, precioEstudio: number) => {
+    if (!confirm('¿Está seguro de eliminar este estudio?\n\nSe actualizará el total de la consulta automáticamente.')) {
+      return;
+    }
+
+    try {
+      // Verificar cuántos estudios tiene la consulta
+      const consulta = consultas.find(c => c.id === consultaId);
+      if (!consulta) return;
+
+      if (consulta.detalle_consultas.length === 1) {
+        alert('❌ No puedes eliminar el único estudio de la consulta.\n\nSi deseas eliminar toda la consulta, usa el botón de eliminar consulta (🗑️) en la parte superior.');
+        return;
+      }
+
+      // Eliminar el detalle
+      const { error: errorDetalle } = await supabase
+        .from('detalle_consultas')
+        .delete()
+        .eq('id', detalleId);
+
+      if (errorDetalle) throw errorDetalle;
+
+      alert(`✅ Estudio eliminado.\n\nSe ha descontado Q ${precioEstudio.toFixed(2)} del total.`);
+      cargarConsultas();
+    } catch (error) {
+      console.error('Error al eliminar estudio:', error);
+      alert('❌ Error al eliminar estudio');
     }
   };
 
@@ -126,6 +181,52 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     }
   };
 
+  const abrirEditarVoucher = (consulta: any) => {
+    setConsultaSeleccionada(consulta);
+    setVoucherEditando(consulta.numero_voucher || consulta.numero_factura || consulta.numero_transferencia || '');
+    setNitEditando(consulta.nit || '');
+    setShowEditVoucherModal(true);
+  };
+
+  const guardarVoucher = async () => {
+    if (!voucherEditando.trim()) {
+      alert('Ingrese el número');
+      return;
+    }
+
+    try {
+      // Determinar qué campo actualizar según forma de pago
+      let updateData: any = {};
+      if (consultaSeleccionada.forma_pago === 'tarjeta') {
+        updateData.numero_voucher = voucherEditando;
+      } else if (consultaSeleccionada.forma_pago === 'transferencia') {
+        updateData.numero_transferencia = voucherEditando;
+      } else if (consultaSeleccionada.forma_pago === 'efectivo_facturado') {
+        updateData.numero_factura = voucherEditando;
+        updateData.requiere_factura = true;
+        // Guardar NIT si se proporcionó, sino usar C/F
+        updateData.nit = nitEditando.trim() || 'C/F';
+      }
+
+      const { error } = await supabase
+        .from('consultas')
+        .update(updateData)
+        .eq('id', consultaSeleccionada.id);
+
+      if (error) throw error;
+
+      alert('Información actualizada exitosamente');
+      setShowEditVoucherModal(false);
+      setConsultaSeleccionada(null);
+      setVoucherEditando('');
+      setNitEditando('');
+      cargarConsultas();
+    } catch (error) {
+      console.error('Error al actualizar:', error);
+      alert('Error al actualizar información');
+    }
+  };
+
   const reimprimirRecibo = (consulta: any) => {
     // Si tiene médico (nombre o ID) y NO marcó "sin información", mostrar
     const tieneMedico = consulta.medicos || consulta.medico_recomendado;
@@ -142,9 +243,12 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     const nombreMedico = consulta.medicos?.nombre || consulta.medico_recomendado;
 
     const datosRecibo = {
+      numeroPaciente: consulta.numero_paciente,
       paciente: {
         nombre: consulta.pacientes.nombre,
         edad: consulta.pacientes.edad,
+        edad_valor: consulta.pacientes.edad_valor,
+        edad_tipo: consulta.pacientes.edad_tipo,
         telefono: consulta.pacientes.telefono
       },
       medico: nombreMedico ? { nombre: nombreMedico } : undefined,
@@ -196,9 +300,12 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     const nombreMedico = consulta.medicos?.nombre || consulta.medico_recomendado;
 
     const datosRecibo = {
+      numeroPaciente: consulta.numero_paciente,
       paciente: {
         nombre: consulta.pacientes.nombre,
         edad: consulta.pacientes.edad,
+        edad_valor: consulta.pacientes.edad_valor,
+        edad_tipo: consulta.pacientes.edad_tipo,
         telefono: consulta.pacientes.telefono
       },
       medico: nombreMedico ? { nombre: nombreMedico } : undefined,
@@ -236,10 +343,53 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       efectivo: 'Efectivo',
       tarjeta: 'Tarjeta',
       transferencia: 'Transferencia',
-      efectivo_facturado: 'Efectivo Facturado',
+      efectivo_facturado: 'Depósito',
       estado_cuenta: 'Estado de Cuenta'
     };
     return formas[forma] || forma;
+  };
+
+  const renumerarTodosPacientes = async () => {
+    if (!confirm('¿Desea renumerar todos los pacientes del día en orden de llegada?\n\nEsto organizará los números: 1, 2, 3, 4...')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Obtener todas las consultas del día ordenadas por created_at (orden de llegada)
+      const { data: consultasOrdenadas, error: errorConsultar } = await supabase
+        .from('consultas')
+        .select('id, created_at')
+        .eq('fecha', fecha)
+        .order('created_at', { ascending: true });
+
+      if (errorConsultar) throw errorConsultar;
+
+      if (!consultasOrdenadas || consultasOrdenadas.length === 0) {
+        alert('No hay consultas para renumerar');
+        setLoading(false);
+        return;
+      }
+
+      // Actualizar cada consulta con su nuevo número
+      for (let i = 0; i < consultasOrdenadas.length; i++) {
+        const { error: errorActualizar } = await supabase
+          .from('consultas')
+          .update({ numero_paciente: i + 1 })
+          .eq('id', consultasOrdenadas[i].id);
+        
+        if (errorActualizar) throw errorActualizar;
+      }
+
+      alert(`${consultasOrdenadas.length} pacientes renumerados correctamente`);
+      await cargarConsultas();
+    } catch (error) {
+      console.error('Error al renumerar pacientes:', error);
+      alert('Error al renumerar pacientes');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -267,7 +417,14 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 onChange={(e) => setFecha(e.target.value)}
               />
             </div>
-            <div className="ml-auto">
+            <div className="ml-auto flex gap-2">
+              <button 
+                onClick={renumerarTodosPacientes} 
+                className="btn-secondary text-sm"
+                disabled={loading || consultas.length === 0}
+              >
+                🔢 Renumerar
+              </button>
               <button onClick={cargarConsultas} className="btn-primary">
                 Actualizar
               </button>
@@ -299,7 +456,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                       <div className="flex justify-between items-start mb-4">
                         <div>
                           <h3 className="text-lg font-bold text-blue-700">
-                            #{index + 1} - {consulta.pacientes.nombre}
+                            #{consulta.numero_paciente || (index + 1)} - {consulta.pacientes.nombre}
                           </h3>
                           <p className="text-sm text-gray-600">
                             Edad: {consulta.pacientes.edad} años | Tel: {consulta.pacientes.telefono}
@@ -341,7 +498,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                             <Edit2 size={18} />
                           </button>
                           <button
-                            onClick={() => eliminarConsulta(consulta.id)}
+                            onClick={() => eliminarConsulta(consulta.id, consulta.numero_paciente)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
                             title="Eliminar consulta"
                           >
@@ -376,33 +533,129 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
                         <div>
                           <p className="text-sm font-semibold text-gray-700 mb-2">Estudios Realizados</p>
-                          <ul className="text-sm space-y-1">
+                          <ul className="text-sm space-y-2">
                             {consulta.detalle_consultas.map((detalle: any) => (
-                              <li key={detalle.id} className="flex justify-between">
-                                <span>• {detalle.sub_estudios.nombre}</span>
+                              <li key={detalle.id} className="flex justify-between items-center gap-2 p-2 bg-gray-50 rounded hover:bg-gray-100">
+                                <span className="flex-1">• {detalle.sub_estudios.nombre}</span>
                                 <span className="font-medium">Q {detalle.precio.toFixed(2)}</span>
+                                <button
+                                  onClick={() => eliminarEstudio(consulta.id, detalle.id, detalle.precio)}
+                                  className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                  title="Eliminar estudio"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
                               </li>
                             ))}
                           </ul>
                         </div>
                       </div>
 
-                      <div className="border-t mt-4 pt-4 flex justify-between items-center">
-                        <div className="text-sm">
-                          <span className="font-semibold">Forma de Pago:</span> {getFormaPago(consulta.forma_pago)}
-                          {consulta.requiere_factura && (
-                            <span className="ml-3">
-                              | <strong>NIT:</strong> {consulta.nit || 'N/A'}
-                            </span>
-                          )}
-                          {consulta.numero_factura && (
-                            <span className="ml-3">
-                              | <strong>No. Factura:</strong> {consulta.numero_factura}
-                            </span>
-                          )}
+                      <div className="border-t mt-4 pt-4">
+                        <div className="flex justify-between items-center mb-3">
+                          <div className="text-sm flex items-center gap-3 flex-wrap">
+                            <span className="font-semibold">Forma de Pago:</span> {getFormaPago(consulta.forma_pago)}
+                            
+                            {/* Solo mostrar NIT si requiere_factura está activado */}
+                            {consulta.requiere_factura && (
+                              <span>
+                                | <strong>NIT:</strong> {consulta.nit || 'C/F'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-blue-700">Q {total.toFixed(2)}</p>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-blue-700">Q {total.toFixed(2)}</p>
+
+                        {/* Botones para agregar info pendiente */}
+                        <div className="flex gap-2 flex-wrap">
+                          {/* Voucher tarjeta pendiente */}
+                          {consulta.forma_pago === 'tarjeta' && !consulta.numero_voucher && (
+                            <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded px-3 py-2">
+                              <span className="text-yellow-700 font-semibold text-sm">
+                                ⚠️ Voucher Pendiente
+                              </span>
+                              <button
+                                onClick={() => abrirEditarVoucher(consulta)}
+                                className="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 font-semibold"
+                              >
+                                Agregar Voucher
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Número transferencia pendiente */}
+                          {consulta.forma_pago === 'transferencia' && !consulta.numero_transferencia && (
+                            <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded px-3 py-2">
+                              <span className="text-yellow-700 font-semibold text-sm">
+                                ⚠️ No. Transferencia Pendiente
+                              </span>
+                              <button
+                                onClick={() => abrirEditarVoucher(consulta)}
+                                className="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 font-semibold"
+                              >
+                                Agregar Número
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Factura pendiente */}
+                          {consulta.forma_pago === 'efectivo_facturado' && !consulta.numero_factura && (
+                            <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded px-3 py-2">
+                              <span className="text-yellow-700 font-semibold text-sm">
+                                ⚠️ No. Factura Pendiente
+                              </span>
+                              <button
+                                onClick={() => abrirEditarVoucher(consulta)}
+                                className="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 font-semibold"
+                              >
+                                Agregar Factura
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Voucher agregado */}
+                          {consulta.numero_voucher && (
+                            <div className="flex items-center gap-2 text-sm bg-green-50 border border-green-300 rounded px-3 py-2">
+                              <span><strong>Voucher:</strong> {consulta.numero_voucher}</span>
+                              <button
+                                onClick={() => abrirEditarVoucher(consulta)}
+                                className="p-1 text-green-700 hover:bg-green-200 rounded transition-colors"
+                                title="Editar voucher"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Transferencia agregada */}
+                          {consulta.numero_transferencia && (
+                            <div className="flex items-center gap-2 text-sm bg-green-50 border border-green-300 rounded px-3 py-2">
+                              <span><strong>Transferencia:</strong> {consulta.numero_transferencia}</span>
+                              <button
+                                onClick={() => abrirEditarVoucher(consulta)}
+                                className="p-1 text-green-700 hover:bg-green-200 rounded transition-colors"
+                                title="Editar número de transferencia"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Número factura */}
+                          {consulta.numero_factura && (
+                            <div className="flex items-center gap-2 text-sm bg-blue-50 border border-blue-300 rounded px-3 py-2">
+                              <span><strong>No. Factura:</strong> {consulta.numero_factura}</span>
+                              <button
+                                onClick={() => abrirEditarVoucher(consulta)}
+                                className="p-1 text-blue-700 hover:bg-blue-200 rounded transition-colors"
+                                title="Editar factura y NIT"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -438,6 +691,89 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           }}
           onSave={cargarConsultas}
         />
+      )}
+
+      {/* Modal editar voucher/factura/transferencia */}
+      {showEditVoucherModal && consultaSeleccionada && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">
+                {consultaSeleccionada.forma_pago === 'tarjeta' && 
+                  (consultaSeleccionada.numero_voucher ? 'Editar Número de Voucher' : 'Agregar Número de Voucher')}
+                {consultaSeleccionada.forma_pago === 'transferencia' && 
+                  (consultaSeleccionada.numero_transferencia ? 'Editar Número de Transferencia' : 'Agregar Número de Transferencia')}
+                {consultaSeleccionada.forma_pago === 'efectivo_facturado' && 
+                  (consultaSeleccionada.numero_factura ? 'Editar Factura y NIT' : 'Agregar Factura')}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowEditVoucherModal(false);
+                  setConsultaSeleccionada(null);
+                  setVoucherEditando('');
+                  setNitEditando('');
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="label">
+                {consultaSeleccionada.forma_pago === 'tarjeta' && 'Número de Voucher *'}
+                {consultaSeleccionada.forma_pago === 'transferencia' && 'Número de Transferencia *'}
+                {consultaSeleccionada.forma_pago === 'efectivo_facturado' && 'Número de Factura *'}
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder={
+                  consultaSeleccionada.forma_pago === 'efectivo_facturado' 
+                    ? 'Ej: 1234567' 
+                    : 'Ej: 1234567890'
+                }
+                value={voucherEditando}
+                onChange={(e) => setVoucherEditando(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            {/* Campo NIT solo para efectivo_facturado */}
+            {consultaSeleccionada.forma_pago === 'efectivo_facturado' && (
+              <div className="mb-4">
+                <label className="label">NIT (dejar vacío para C/F)</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Ej: 12345678 o dejar vacío"
+                  value={nitEditando}
+                  onChange={(e) => setNitEditando(e.target.value)}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Si se deja vacío, se guardará como "C/F"
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowEditVoucherModal(false);
+                  setConsultaSeleccionada(null);
+                  setVoucherEditando('');
+                  setNitEditando('');
+                }}
+                className="btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button onClick={guardarVoucher} className="btn-primary">
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

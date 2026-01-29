@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Lock } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface LoginPageProps {
   onLogin: () => void;
@@ -9,33 +10,37 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  // Cargar usuarios de localStorage o usar default
-  const getUsers = () => {
-    const stored = localStorage.getItem('conrad_users');
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    // Usuario admin por defecto
-    const defaultUsers = [
-      { username: 'admin', password: 'admin123', nombre: 'Administrador' }
-    ];
-    localStorage.setItem('conrad_users', JSON.stringify(defaultUsers));
-    return defaultUsers;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
+    setLoading(true);
     
-    const users = getUsers();
-    const user = users.find((u: any) => u.username === username && u.password === password);
-    
-    if (user) {
+    try {
+      const { data: usuarios, error: dbError } = await supabase
+        .from('usuarios')
+        .select('*')
+        .eq('username', username)
+        .eq('password', password)
+        .eq('activo', true)
+        .single();
+      
+      if (dbError || !usuarios) {
+        setError('Usuario o contraseña incorrectos');
+        setLoading(false);
+        return;
+      }
+      
+      // Guardar sesión
       localStorage.setItem('isAuthenticated', 'true');
-      localStorage.setItem('nombreUsuarioConrad', user.nombre);
+      localStorage.setItem('nombreUsuarioConrad', usuarios.nombre);
+      localStorage.setItem('usernameConrad', usuarios.username);
       onLogin();
-    } else {
-      setError('Usuario o contraseña incorrectos');
+    } catch (error) {
+      console.error('Error de login:', error);
+      setError('Error al iniciar sesión');
+      setLoading(false);
     }
   };
 
@@ -130,9 +135,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
 
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50"
           >
-            Iniciar Sesión
+            {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
           </button>
         </form>
       </div>

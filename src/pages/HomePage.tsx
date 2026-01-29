@@ -81,6 +81,21 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     }
   }, [tipoCobro]);
 
+  // Actualizar forma de pago cuando cambie el tipo de factura
+  useEffect(() => {
+    if (requiereFactura) {
+      // Si activa factura y tiene "efectivo", cambiar a "efectivo_facturado"
+      if (formaPago === 'efectivo') {
+        setFormaPago('efectivo_facturado');
+      }
+    } else {
+      // Si desactiva factura y tiene "efectivo_facturado", cambiar a "efectivo"
+      if (formaPago === 'efectivo_facturado') {
+        setFormaPago('efectivo');
+      }
+    }
+  }, [requiereFactura]);
+
   // Combinación de teclas secreta: Ctrl + Shift + U para Gestión de Usuarios
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -254,19 +269,28 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       return;
     }
 
-    // Validar número de voucher
-    if (formaPago === 'tarjeta' && !numeroVoucher.trim()) {
-      alert('Debe ingresar el número de voucher/baucher');
-      return;
-    }
+    // NOTA: Ya no validamos voucher - se puede agregar después
 
     const totales = calcularTotales();
 
     try {
+      // Calcular el próximo número de paciente SOLO PARA HOY
+      const fechaHoy = format(new Date(), 'yyyy-MM-dd');
+      const { data: ultimaConsulta } = await supabase
+        .from('consultas')
+        .select('numero_paciente')
+        .eq('fecha', fechaHoy)
+        .order('numero_paciente', { ascending: false })
+        .limit(1)
+        .single();
+      
+      const siguienteNumero = (ultimaConsulta?.numero_paciente || 0) + 1;
+
       // Crear consulta
       const { data: consultaData, error: consultaError } = await supabase
   .from('consultas')
   .insert([{
+    numero_paciente: siguienteNumero,
     paciente_id: pacienteActual.id,
     medico_id: medicoActual?.id || null,
     medico_recomendado: medicoActual?.nombre || null, // ✅ Guardar nombre del médico
@@ -314,9 +338,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       });
 
       const datosRecibo = {
+        numeroPaciente: consultaData.numero_paciente,
         paciente: {
           nombre: pacienteActual.nombre,
           edad: pacienteActual.edad,
+          edad_valor: pacienteActual.edad_valor,
+          edad_tipo: pacienteActual.edad_tipo,
           telefono: pacienteActual.telefono
         },
         medico: medicoActual ? { nombre: medicoActual.nombre } : undefined,
@@ -344,11 +371,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         const htmlMedico = generarReciboMedico(datosRecibo);
         abrirRecibo(htmlMedico, 'Orden Médico');
       }
-
-      alert('Consulta guardada exitosamente');
       
-      // Limpiar formulario
+      // Limpiar formulario después de imprimir
       setTimeout(() => {
+        alert('Consulta guardada exitosamente');
         setPacienteActual(null);
         setMedicoActual(null);
         setSinInfoMedico(false);
@@ -425,7 +451,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           </button>
           <button 
             onClick={() => onNavigate('cuadre-quincenal')}
-            className="btn-secondary flex items-center gap-2 bg-purple-50 border-purple-300"
+            className="btn-secondary flex items-center gap-2"
           >
             <Calendar size={20} />
             Cuadre Quincenal
@@ -754,15 +780,20 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 {/* Campo para número de voucher */}
                 {formaPago === 'tarjeta' && (
                   <div>
-                    <label className="label">Número de Voucher/Baucher *</label>
+                    <label className="label">
+                      Número de Voucher/Baucher 
+                      <span className="text-yellow-600 ml-2">(Opcional - se puede agregar después)</span>
+                    </label>
                     <input
                       type="text"
                       className="input-field"
                       value={numeroVoucher}
                       onChange={(e) => setNumeroVoucher(e.target.value)}
                       placeholder="Número de voucher"
-                      required
                     />
+                    {!numeroVoucher && (
+                      <p className="text-xs text-yellow-600 mt-1">⚠️ Sin voucher - pendiente de agregar</p>
+                    )}
                   </div>
                 )}
 

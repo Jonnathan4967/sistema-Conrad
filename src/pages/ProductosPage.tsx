@@ -26,6 +26,7 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
   const [estudios, setEstudios] = useState<Estudio[]>([]);
   const [subEstudios, setSubEstudios] = useState<SubEstudio[]>([]);
   const [estudioSeleccionado, setEstudioSeleccionado] = useState<string>('');
+  const [busqueda, setBusqueda] = useState(''); // Búsqueda
   
   // Modal estados
   const [showModalEstudio, setShowModalEstudio] = useState(false);
@@ -79,6 +80,20 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
     if (!nombreSubEstudio.trim() || !estudioSeleccionado) return;
 
     try {
+      // Verificar duplicados (solo si es nuevo, no al editar)
+      if (!editando) {
+        const existe = subEstudios.some(s => 
+          s.nombre.toLowerCase() === nombreSubEstudio.trim().toLowerCase() && 
+          s.estudio_id === estudioSeleccionado &&
+          s.activo
+        );
+        
+        if (existe) {
+          alert('⚠️ Ya existe un sub-estudio con ese nombre en este estudio');
+          return;
+        }
+      }
+
       const data = {
         nombre: nombreSubEstudio,
         estudio_id: estudioSeleccionado,
@@ -153,7 +168,9 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
   };
 
   const subEstudiosFiltrados = estudioSeleccionado 
-    ? subEstudios.filter(s => s.estudio_id === estudioSeleccionado && s.activo)
+    ? subEstudios
+        .filter(s => s.estudio_id === estudioSeleccionado && s.activo)
+        .filter(s => s.nombre.toLowerCase().includes(busqueda.toLowerCase()))
     : [];
 
   return (
@@ -206,18 +223,31 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
               </button>
             </div>
 
-            <div className="mb-4">
-              <label className="label">Filtrar por Estudio</label>
-              <select 
-                className="input-field"
-                value={estudioSeleccionado}
-                onChange={(e) => setEstudioSeleccionado(e.target.value)}
-              >
-                <option value="">Todos</option>
-                {estudios.filter(e => e.activo).map(e => (
-                  <option key={e.id} value={e.id}>{e.nombre}</option>
-                ))}
-              </select>
+            <div className="mb-4 space-y-3">
+              <div>
+                <label className="label">Filtrar por Estudio</label>
+                <select 
+                  className="input-field"
+                  value={estudioSeleccionado}
+                  onChange={(e) => setEstudioSeleccionado(e.target.value)}
+                >
+                  <option value="">Todos</option>
+                  {estudios.filter(e => e.activo).map(e => (
+                    <option key={e.id} value={e.id}>{e.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="label">🔍 Buscar Sub-Estudio</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Buscar por nombre..."
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                />
+              </div>
             </div>
             
             <div className="space-y-2 max-h-96 overflow-y-auto">

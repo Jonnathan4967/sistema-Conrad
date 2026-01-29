@@ -70,7 +70,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
         .from('consultas')
         .select(`
           *,
-          pacientes(nombre, edad),
+          pacientes(nombre, edad, edad_valor, edad_tipo),
           medicos(nombre),
           detalle_consultas(
             sub_estudios(

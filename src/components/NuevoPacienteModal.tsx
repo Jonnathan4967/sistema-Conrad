@@ -19,6 +19,7 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
   // Estado del paciente
   const [nombrePaciente, setNombrePaciente] = useState('');
   const [edadPaciente, setEdadPaciente] = useState('');
+  const [tipoEdad, setTipoEdad] = useState<'años' | 'meses' | 'días'>('años');
   const [telefonoPaciente, setTelefonoPaciente] = useState('');
   const [departamentoPaciente, setDepartamentoPaciente] = useState('');
   const [municipioPaciente, setMunicipioPaciente] = useState('');
@@ -111,8 +112,8 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
 
   // Guardar
   const handleGuardar = () => {
-    // Validar datos del paciente
-    if (!nombrePaciente || !edadPaciente || !telefonoPaciente || !departamentoPaciente || !municipioPaciente) {
+    // Validar datos del paciente (con trim para eliminar espacios)
+    if (!nombrePaciente.trim() || !edadPaciente || !telefonoPaciente.trim() || !departamentoPaciente || !municipioPaciente) {
       alert('Por favor complete todos los campos del paciente');
       return;
     }
@@ -121,15 +122,25 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
     const tieneMedico = nombreMedico.trim() !== '';
     
     if (tieneMedico && !sinInformacion) {
-      if (!telefonoMedico || !departamentoMedico || !municipioMedico || !direccionMedico) {
+      if (!telefonoMedico.trim() || !departamentoMedico || !municipioMedico || !direccionMedico.trim()) {
         alert('Por favor complete todos los campos del médico o marque "Sin información"');
         return;
       }
     }
 
+    // Convertir edad a años para consistencia en BD
+    let edadEnAnios = parseInt(edadPaciente);
+    if (tipoEdad === 'meses') {
+      edadEnAnios = Math.floor(edadEnAnios / 12);
+    } else if (tipoEdad === 'días') {
+      edadEnAnios = Math.floor(edadEnAnios / 365);
+    }
+
     const paciente: Paciente = {
       nombre: nombrePaciente,
-      edad: parseInt(edadPaciente),
+      edad: edadEnAnios || 0,
+      edad_valor: parseInt(edadPaciente), // Valor original
+      edad_tipo: tipoEdad, // días, meses, años
       telefono: telefonoPaciente,
       departamento: departamentoPaciente,
       municipio: municipioPaciente
@@ -200,14 +211,40 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
 
               <div>
                 <label className="label">Edad <span className="text-red-500">*</span></label>
+                
+                {/* Botones selector tipo edad */}
+                <div className="flex gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setTipoEdad('días')}
+                    className={`px-3 py-1 rounded text-sm ${tipoEdad === 'días' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                  >
+                    Días
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipoEdad('meses')}
+                    className={`px-3 py-1 rounded text-sm ${tipoEdad === 'meses' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                  >
+                    Meses
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipoEdad('años')}
+                    className={`px-3 py-1 rounded text-sm ${tipoEdad === 'años' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                  >
+                    Años
+                  </button>
+                </div>
+
                 <input
                   type="number"
                   className="input-field"
                   value={edadPaciente}
                   onChange={(e) => setEdadPaciente(e.target.value.replace(/\D/g, ''))}
-                  placeholder="Edad en años"
+                  placeholder={`Edad en ${tipoEdad}`}
                   min="0"
-                  max="120"
+                  max={tipoEdad === 'años' ? '120' : tipoEdad === 'meses' ? '1440' : '43800'}
                 />
               </div>
 
