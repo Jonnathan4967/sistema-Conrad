@@ -66,7 +66,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
         anioReporte = anio;
       }
 
-      const { data: consultas, error } = await supabase
+      const { data: consultasRaw, error } = await supabase
         .from('consultas')
         .select(`
           *,
@@ -85,6 +85,27 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
         .order('fecha', { ascending: true });
 
       if (error) throw error;
+
+      // ✅ DEBUG: Ver consultas anuladas
+      console.log('=== DEBUG CONSULTAS ANULADAS ===');
+      consultasRaw?.forEach(c => {
+        if (c.anulado === true) {
+          console.log('ANULADA:', c.pacientes?.nombre, 'anulado:', c.anulado);
+        }
+      });
+
+      // ✅ Filtrar consultas anuladas DESPUÉS de obtenerlas
+      // Solo incluir si anulado es false, null, o undefined (NO true)
+      const consultas = consultasRaw?.filter(c => {
+        const esAnulada = c.anulado === true;
+        if (esAnulada) {
+          console.log('Filtrando (anulada):', c.pacientes?.nombre);
+        }
+        return !esAnulada;
+      }) || [];
+
+      console.log('Total consultas raw:', consultasRaw?.length);
+      console.log('Total consultas filtradas:', consultas.length);
 
       if (!consultas || consultas.length === 0) {
         showToast('No hay consultas en este período', 'error');

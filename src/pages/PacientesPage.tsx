@@ -13,14 +13,18 @@ interface PacientesPageProps {
 export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [consultas, setConsultas] = useState<any[]>([]);
+  const [filtroBusqueda, setFiltroBusqueda] = useState('');
   const [loading, setLoading] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAgregarEstudioModal, setShowAgregarEstudioModal] = useState(false);
   const [showEditVoucherModal, setShowEditVoucherModal] = useState(false);
+  const [showEditFormaPagoModal, setShowEditFormaPagoModal] = useState(false);
   const [pacienteEditando, setPacienteEditando] = useState<any>(null);
   const [consultaSeleccionada, setConsultaSeleccionada] = useState<any>(null);
   const [voucherEditando, setVoucherEditando] = useState('');
   const [nitEditando, setNitEditando] = useState('');
+  const [formaPagoEditando, setFormaPagoEditando] = useState('');
+  const [requiereFacturaEditando, setRequiereFacturaEditando] = useState(false);
 
   useEffect(() => {
     cargarConsultas();
@@ -50,37 +54,41 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   };
 
   const eliminarConsulta = async (consultaId: string, numeroEliminado: number) => {
-    if (!confirm('¿Está seguro de eliminar esta consulta? Los siguientes pacientes se renumerarán automáticamente.')) {
+    const motivo = prompt('⚠️ ANULAR CONSULTA\n\n¿Por qué se anula?\n(Obligatorio para auditoría)');
+    
+    if (!motivo || motivo.trim() === '') {
+      alert('❌ Debes dar un motivo');
+      return;
+    }
+
+    if (!confirm(`¿ANULAR esta consulta?\n\nMotivo: ${motivo}\n\nQuedar registrada para auditoría.`)) {
       return;
     }
 
     try {
-      // Primero eliminar los detalles
-      const { error: errorDetalles } = await supabase
-        .from('detalle_consultas')
-        .delete()
-        .eq('consulta_id', consultaId);
-
-      if (errorDetalles) throw errorDetalles;
-
-      // Luego eliminar la consulta
-      const { error: errorConsulta } = await supabase
+      const usuarioActual = localStorage.getItem('nombreUsuarioConrad') || 'Desconocido';
+      
+      const { error } = await supabase
         .from('consultas')
-        .delete()
+        .update({
+          anulado: true,
+          fecha_anulacion: new Date().toISOString(),
+          usuario_anulo: usuarioActual,
+          motivo_anulacion: motivo
+        })
         .eq('id', consultaId);
 
-      if (errorConsulta) throw errorConsulta;
+      if (error) throw error;
 
-      // Renumerar todos los pacientes posteriores (restar 1 a su número)
       const { data: consultasPosteriores, error: errorConsultar } = await supabase
         .from('consultas')
         .select('id, numero_paciente')
         .eq('fecha', fecha)
+        .eq('anulado', false)
         .gt('numero_paciente', numeroEliminado);
 
       if (errorConsultar) throw errorConsultar;
 
-      // Actualizar cada consulta posterior
       if (consultasPosteriores && consultasPosteriores.length > 0) {
         for (const consulta of consultasPosteriores) {
           const { error: errorActualizar } = await supabase
@@ -92,7 +100,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         }
       }
 
-      alert('Consulta eliminada y pacientes renumerados exitosamente');
+      alert(`✅ ANULADA\nUsuario: ${usuarioActual}\nMotivo: ${motivo}`);
       cargarConsultas();
     } catch (error) {
       console.error('Error al eliminar consulta:', error);
@@ -224,6 +232,58 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     } catch (error) {
       console.error('Error al actualizar:', error);
       alert('Error al actualizar información');
+    }
+  };
+
+  const abrirEditarFormaPago = (consulta: any) => {
+    setConsultaSeleccionada(consulta);
+    setFormaPagoEditando(consulta.forma_pago);
+    setRequiereFacturaEditando(consulta.requiere_factura || false);
+    setShowEditFormaPagoModal(true);
+  };
+
+  const guardarFormaPago = async () => {
+    if (!formaPagoEditando) {
+      alert('Seleccione una forma de pago');
+      return;
+    }
+
+    try {
+      const updateData: any = {
+        forma_pago: formaPagoEditando,
+        requiere_factura: requiereFacturaEditando
+      };
+
+      // Si cambia a una forma de pago que no requiere ciertos campos, limpiarlos
+      if (formaPagoEditando !== 'tarjeta') {
+        updateData.numero_voucher = null;
+      }
+      if (formaPagoEditando !== 'transferencia') {
+        updateData.numero_transferencia = null;
+      }
+      if (formaPagoEditando !== 'efectivo_facturado') {
+        updateData.numero_factura = null;
+        if (!requiereFacturaEditando) {
+          updateData.nit = null;
+        }
+      }
+
+      const { error } = await supabase
+        .from('consultas')
+        .update(updateData)
+        .eq('id', consultaSeleccionada.id);
+
+      if (error) throw error;
+
+      alert('✅ Forma de pago actualizada exitosamente');
+      setShowEditFormaPagoModal(false);
+      setConsultaSeleccionada(null);
+      setFormaPagoEditando('');
+      setRequiereFacturaEditando(false);
+      cargarConsultas();
+    } catch (error) {
+      console.error('Error al actualizar forma de pago:', error);
+      alert('❌ Error al actualizar forma de pago');
     }
   };
 
@@ -404,9 +464,9 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       </header>
 
       <div className="container mx-auto p-4">
-        {/* Selector de fecha */}
+        {/* Selector de fecha y búsqueda */}
         <div className="card mb-6">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <Calendar className="text-blue-600" size={24} />
             <div>
               <label className="label">Seleccionar Fecha</label>
@@ -415,6 +475,16 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 className="input-field"
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
+              />
+            </div>
+            <div className="flex-1">
+              <label className="label">Buscar por Nombre</label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="Nombre del paciente..."
+                value={filtroBusqueda}
+                onChange={(e) => setFiltroBusqueda(e.target.value)}
               />
             </div>
             <div className="ml-auto flex gap-2">
@@ -439,7 +509,9 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           </div>
         ) : (
           <>
-            {consultas.length === 0 ? (
+            {consultas.filter(c => 
+              c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase())
+            ).length === 0 ? (
               <div className="card text-center py-12">
                 <p className="text-lg text-gray-600">No hay consultas para esta fecha</p>
                 <p className="text-sm text-gray-500 mt-2">
@@ -448,14 +520,27 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
               </div>
             ) : (
               <div className="space-y-4">
-                {consultas.map((consulta, index) => {
+                {consultas
+                  .filter(c => c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase()))
+                  .map((consulta, index) => {
                   const total = consulta.detalle_consultas.reduce((sum: number, d: any) => sum + d.precio, 0);
                   
                   return (
-                    <div key={consulta.id} className="card hover:shadow-lg transition-shadow">
+                    <div key={consulta.id} className={`card hover:shadow-lg transition-shadow ${consulta.anulado ? 'border-4 border-red-500 bg-red-50' : ''}`}>
+                      {consulta.anulado && (
+                        <div className="bg-red-600 text-white px-4 py-2 mb-4 rounded font-bold flex justify-between">
+                          <span>🚫 ANULADA</span>
+                          <button
+                            onClick={() => alert(`Usuario: ${consulta.usuario_anulo}\nFecha: ${format(new Date(consulta.fecha_anulacion), 'dd/MM/yyyy HH:mm')}\nMotivo: ${consulta.motivo_anulacion}`)}
+                            className="text-xs bg-white text-red-600 px-2 py-1 rounded"
+                          >
+                            Info
+                          </button>
+                        </div>
+                      )}
                       <div className="flex justify-between items-start mb-4">
                         <div>
-                          <h3 className="text-lg font-bold text-blue-700">
+                          <h3 className={`text-lg font-bold ${consulta.anulado ? 'text-red-700 line-through' : 'text-blue-700'}`}>
                             #{consulta.numero_paciente || (index + 1)} - {consulta.pacientes.nombre}
                           </h3>
                           <p className="text-sm text-gray-600">
@@ -466,9 +551,11 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                           </p>
                         </div>
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => abrirAgregarEstudio(consulta)}
-                            className="p-2 text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                          {!consulta.anulado && (
+                            <>
+                              <button
+                                onClick={() => abrirAgregarEstudio(consulta)}
+                                className="p-2 text-purple-600 hover:bg-purple-50 rounded transition-colors"
                             title="Agregar estudios"
                           >
                             <Plus size={18} />
@@ -500,10 +587,12 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                           <button
                             onClick={() => eliminarConsulta(consulta.id, consulta.numero_paciente)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="Eliminar consulta"
+                            title="Anular consulta"
                           >
                             <Trash2 size={18} />
                           </button>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -554,7 +643,15 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                       <div className="border-t mt-4 pt-4">
                         <div className="flex justify-between items-center mb-3">
                           <div className="text-sm flex items-center gap-3 flex-wrap">
-                            <span className="font-semibold">Forma de Pago:</span> {getFormaPago(consulta.forma_pago)}
+                            <span className="font-semibold">Forma de Pago:</span> 
+                            <span>{getFormaPago(consulta.forma_pago)}</span>
+                            <button
+                              onClick={() => abrirEditarFormaPago(consulta)}
+                              className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              title="Editar forma de pago"
+                            >
+                              <Edit2 size={14} />
+                            </button>
                             
                             {/* Solo mostrar NIT si requiere_factura está activado */}
                             {consulta.requiere_factura && (
@@ -770,6 +867,100 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
               </button>
               <button onClick={guardarVoucher} className="btn-primary">
                 Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal editar forma de pago */}
+      {showEditFormaPagoModal && consultaSeleccionada && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Editar Forma de Pago</h2>
+              <button
+                onClick={() => {
+                  setShowEditFormaPagoModal(false);
+                  setConsultaSeleccionada(null);
+                  setFormaPagoEditando('');
+                  setRequiereFacturaEditando(false);
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="label">¿Requiere Factura?</label>
+              <div className="flex gap-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    checked={requiereFacturaEditando}
+                    onChange={() => setRequiereFacturaEditando(true)}
+                    className="mr-2"
+                  />
+                  Sí
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    checked={!requiereFacturaEditando}
+                    onChange={() => setRequiereFacturaEditando(false)}
+                    className="mr-2"
+                  />
+                  No
+                </label>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="label">Forma de Pago *</label>
+              <select
+                className="input-field"
+                value={formaPagoEditando}
+                onChange={(e) => setFormaPagoEditando(e.target.value)}
+              >
+                <option value="">Seleccione...</option>
+                {requiereFacturaEditando ? (
+                  <>
+                    <option value="efectivo_facturado">Efectivo Facturado (Depósito)</option>
+                    <option value="tarjeta">Tarjeta</option>
+                    <option value="transferencia">Transferencia</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="efectivo">Efectivo</option>
+                    <option value="tarjeta">Tarjeta</option>
+                    <option value="transferencia">Transferencia</option>
+                    <option value="estado_cuenta">Estado de Cuenta</option>
+                  </>
+                )}
+              </select>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-4 text-sm">
+              <p className="text-yellow-800">
+                <strong>Nota:</strong> Al cambiar la forma de pago, se eliminarán los números de voucher/factura/transferencia anteriores si no aplican.
+              </p>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowEditFormaPagoModal(false);
+                  setConsultaSeleccionada(null);
+                  setFormaPagoEditando('');
+                  setRequiereFacturaEditando(false);
+                }}
+                className="btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button onClick={guardarFormaPago} className="btn-primary">
+                Guardar Cambios
               </button>
             </div>
           </div>

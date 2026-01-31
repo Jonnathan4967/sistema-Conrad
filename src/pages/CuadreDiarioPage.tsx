@@ -25,7 +25,10 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [cuadre, setCuadre] = useState<CuadreDiario | null>(null);
   const [detalles, setDetalles] = useState<any[]>([]);
+  const [consultasAnuladas, setConsultasAnuladas] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [agruparPorPaciente, setAgruparPorPaciente] = useState(false);
+  const [pacientesExpandidos, setPacientesExpandidos] = useState<Set<string>>(new Set());
   
   // Estados para cuadre de caja
   const [efectivoContado, setEfectivoContado] = useState('');
@@ -44,12 +47,50 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     cargarCuadre();
   }, [fecha]);
 
+  // Agrupar estudios por paciente
+  const agruparEstudiosPorPaciente = () => {
+    const agrupado: { [key: string]: any } = {};
+    
+    detalles.forEach(detalle => {
+      const key = detalle.paciente;
+      if (!agrupado[key]) {
+        agrupado[key] = {
+          paciente: detalle.paciente,
+          estudios: [],
+          total: 0,
+          formasPago: new Set()
+        };
+      }
+      agrupado[key].estudios.push(detalle);
+      agrupado[key].total += detalle.precio;
+      agrupado[key].formasPago.add(detalle.forma_pago);
+    });
+    
+    return Object.values(agrupado);
+  };
+
+  const togglePaciente = (paciente: string) => {
+    const nuevosExpandidos = new Set(pacientesExpandidos);
+    if (nuevosExpandidos.has(paciente)) {
+      nuevosExpandidos.delete(paciente);
+    } else {
+      nuevosExpandidos.add(paciente);
+    }
+    setPacientesExpandidos(nuevosExpandidos);
+  };
+
   const cargarCuadre = async () => {
     setLoading(true);
     try {
-      // Ya no cargamos cuadres guardados, solo las consultas del día
+      // Calcular rango de horario: 7 AM del día seleccionado hasta 7 AM del día siguiente
+      const fechaInicio = new Date(fecha + 'T07:00:00');
+      const fechaFin = new Date(fecha + 'T07:00:00');
+      fechaFin.setDate(fechaFin.getDate() + 1); // Agregar un día
       
-      // Obtener consultas del día
+      const fechaInicioISO = fechaInicio.toISOString();
+      const fechaFinISO = fechaFin.toISOString();
+      
+      // Obtener consultas del día (7 AM a 7 AM)
       const { data: consultas, error: errorConsultas } = await supabase
         .from('consultas')
         .select(`
@@ -57,7 +98,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           pacientes(nombre),
           medicos(nombre)
         `)
-        .eq('fecha', fecha);
+        .gte('created_at', fechaInicioISO)
+        .lt('created_at', fechaFinISO);
 
       if (errorConsultas) throw errorConsultas;
 
@@ -86,10 +128,12 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       if (errorDetalles) throw errorDetalles;
 
-      // Calcular totales por forma de pago
+      // Calcular totales por forma de pago (SOLO consultas NO anuladas)
       const cuadrePorForma: { [key: string]: CuadrePorFormaPago } = {};
+      const consultasActivas = consultas?.filter(c => c.anulado !== true) || []; // null o false = activa
+      const consultasAnuladas = consultas?.filter(c => c.anulado === true) || []; // solo true = anulada
       
-      consultas?.forEach(consulta => {
+      consultasActivas.forEach(consulta => {
         const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
         const totalConsulta = detallesConsulta.reduce((sum, d) => sum + d.precio, 0);
         const formaPago = consulta.forma_pago;
@@ -110,26 +154,40 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       setCuadre({
         fecha,
-        total_consultas: consultas?.length || 0,
+        total_consultas: consultasActivas.length, // Solo contar las NO anuladas
         total_ventas: totalVentas,
         cuadres_forma_pago: Object.values(cuadrePorForma)
       });
 
-      // Guardar detalles con información de la consulta
-      const detallesConInfo = detallesData?.map(d => {
-        const consulta = consultas?.find(c => c.id === d.consulta_id);
-        return {
-          ...d,
-          paciente: consulta?.pacientes?.nombre,
-          medico: consulta?.medicos?.nombre || 'Sin información',
-          forma_pago: consulta?.forma_pago,
-          tipo_cobro: consulta?.tipo_cobro,
-          numero_transferencia: consulta?.numero_transferencia,
-          numero_voucher: consulta?.numero_voucher
-        };
-      }) || [];
+      // Guardar detalles con información de la consulta (SOLO NO anuladas)
+      const detallesConInfo = detallesData
+        ?.filter(d => {
+          const consulta = consultasActivas.find(c => c.id === d.consulta_id);
+          return !!consulta; // Solo incluir detalles de consultas NO anuladas
+        })
+        .map(d => {
+          const consulta = consultasActivas.find(c => c.id === d.consulta_id);
+          return {
+            ...d,
+            paciente: consulta?.pacientes?.nombre,
+            medico: consulta?.medicos?.nombre || 'Sin información',
+            forma_pago: consulta?.forma_pago,
+            tipo_cobro: consulta?.tipo_cobro,
+            numero_transferencia: consulta?.numero_transferencia,
+            numero_voucher: consulta?.numero_voucher
+          };
+        }) || [];
       
       setDetalles(detallesConInfo);
+      
+      // Guardar información de consultas anuladas
+      setConsultasAnuladas(consultasAnuladas.map(c => ({
+        nombre: c.pacientes?.nombre,
+        usuario_anulo: c.usuario_anulo,
+        fecha_anulacion: c.fecha_anulacion,
+        motivo_anulacion: c.motivo_anulacion,
+        total: detallesData?.filter(d => d.consulta_id === c.id).reduce((sum, d) => sum + d.precio, 0) || 0
+      })));
       
       // Cargar gastos del día
       cargarGastos();
@@ -808,53 +866,151 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
             {/* Detalles de consultas */}
             {detalles.length > 0 && (
               <div className="card">
-                <h3 className="text-lg font-semibold mb-4">Detalle de Consultas</h3>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold">Detalle de Consultas</h3>
+                  <button
+                    onClick={() => setAgruparPorPaciente(!agruparPorPaciente)}
+                    className="btn-secondary text-sm"
+                  >
+                    {agruparPorPaciente ? '📋 Ver Todos' : '👥 Agrupar por Paciente'}
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  {!agruparPorPaciente ? (
+                    // Vista normal - todos los estudios
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left">Paciente</th>
+                          <th className="px-4 py-2 text-left">Estudio</th>
+                          <th className="px-4 py-2 text-left">Tipo</th>
+                          <th className="px-4 py-2 text-left">Forma Pago</th>
+                          <th className="px-4 py-2 text-right">Precio</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detalles.map((detalle, index) => (
+                          <tr key={index} className="border-t hover:bg-gray-50">
+                            <td className="px-4 py-2">{detalle.paciente}</td>
+                            <td className="px-4 py-2">{detalle.sub_estudios?.nombre}</td>
+                            <td className="px-4 py-2">
+                              <span className={`text-xs px-2 py-1 rounded ${
+                                detalle.tipo_cobro === 'normal' ? 'bg-blue-100' :
+                                detalle.tipo_cobro === 'social' ? 'bg-green-100' : 'bg-orange-100'
+                              }`}>
+                                {detalle.tipo_cobro}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2">
+                              <div>
+                                {getFormaPagoNombre(detalle.forma_pago)}
+                                {detalle.forma_pago === 'tarjeta' && !detalle.numero_voucher && (
+                                  <div className="text-xs text-yellow-600 font-semibold">
+                                    ⚠️ Voucher Pendiente
+                                  </div>
+                                )}
+                                {detalle.numero_transferencia && (
+                                  <div className="text-xs text-gray-600">Trans: {detalle.numero_transferencia}</div>
+                                )}
+                                {detalle.numero_voucher && (
+                                  <div className="text-xs text-gray-600">Voucher: {detalle.numero_voucher}</div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2 text-right font-semibold">
+                              Q {detalle.precio.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    // Vista agrupada por paciente
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left">Paciente</th>
+                          <th className="px-4 py-2 text-center"># Estudios</th>
+                          <th className="px-4 py-2 text-left">Forma(s) Pago</th>
+                          <th className="px-4 py-2 text-right">Total</th>
+                          <th className="px-4 py-2 text-center"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {agruparEstudiosPorPaciente().map((grupo, index) => (
+                          <React.Fragment key={index}>
+                            {/* Fila del paciente */}
+                            <tr className="border-t bg-blue-50 hover:bg-blue-100 cursor-pointer"
+                                onClick={() => togglePaciente(grupo.paciente)}>
+                              <td className="px-4 py-2 font-semibold">{grupo.paciente}</td>
+                              <td className="px-4 py-2 text-center">
+                                <span className="bg-blue-600 text-white px-2 py-1 rounded-full text-xs">
+                                  {grupo.estudios.length}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2">
+                                <div className="flex gap-1 flex-wrap">
+                                  {Array.from(grupo.formasPago).map((fp: any) => (
+                                    <span key={fp} className="text-xs bg-gray-200 px-2 py-1 rounded">
+                                      {getFormaPagoNombre(fp)}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2 text-right font-bold text-blue-700">
+                                Q {grupo.total.toFixed(2)}
+                              </td>
+                              <td className="px-4 py-2 text-center">
+                                {pacientesExpandidos.has(grupo.paciente) ? '▼' : '▶'}
+                              </td>
+                            </tr>
+                            {/* Filas de estudios expandidas */}
+                            {pacientesExpandidos.has(grupo.paciente) && grupo.estudios.map((detalle: any, idx: number) => (
+                              <tr key={`${index}-${idx}`} className="border-t bg-gray-50">
+                                <td className="px-4 py-2 pl-8 text-sm text-gray-600">↳ {detalle.sub_estudios?.nombre}</td>
+                                <td className="px-4 py-2 text-center">
+                                  <span className={`text-xs px-2 py-1 rounded ${
+                                    detalle.tipo_cobro === 'normal' ? 'bg-blue-100' :
+                                    detalle.tipo_cobro === 'social' ? 'bg-green-100' : 'bg-orange-100'
+                                  }`}>
+                                    {detalle.tipo_cobro}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2 text-sm">{getFormaPagoNombre(detalle.forma_pago)}</td>
+                                <td className="px-4 py-2 text-right text-sm">Q {detalle.precio.toFixed(2)}</td>
+                                <td></td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Sección de Consultas Anuladas */}
+            {consultasAnuladas.length > 0 && (
+              <div className="card border-4 border-red-500">
+                <h3 className="text-lg font-semibold mb-4 text-red-700">🚫 Consultas Anuladas (No cuentan en el cuadre)</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-red-100">
                       <tr>
                         <th className="px-4 py-2 text-left">Paciente</th>
-                        <th className="px-4 py-2 text-left">Estudio</th>
-                        <th className="px-4 py-2 text-left">Tipo</th>
-                        <th className="px-4 py-2 text-left">Forma Pago</th>
-                        <th className="px-4 py-2 text-right">Precio</th>
+                        <th className="px-4 py-2 text-left">Total Anulado</th>
+                        <th className="px-4 py-2 text-left">Anulado Por</th>
+                        <th className="px-4 py-2 text-left">Motivo</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {detalles.map((detalle, index) => (
-                        <tr key={index} className="border-t hover:bg-gray-50">
-                          <td className="px-4 py-2">{detalle.paciente}</td>
-                          <td className="px-4 py-2">{detalle.sub_estudios?.nombre}</td>
-                          <td className="px-4 py-2">
-                            <span className={`text-xs px-2 py-1 rounded ${
-                              detalle.tipo_cobro === 'normal' ? 'bg-blue-100' :
-                              detalle.tipo_cobro === 'social' ? 'bg-green-100' : 'bg-orange-100'
-                            }`}>
-                              {detalle.tipo_cobro}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2">
-                            <div>
-                              {getFormaPagoNombre(detalle.forma_pago)}
-                              
-                              {/* Indicador voucher pendiente */}
-                              {detalle.forma_pago === 'tarjeta' && !detalle.numero_voucher && (
-                                <div className="text-xs text-yellow-600 font-semibold">
-                                  ⚠️ Voucher Pendiente
-                                </div>
-                              )}
-                              
-                              {detalle.numero_transferencia && (
-                                <div className="text-xs text-gray-600">Trans: {detalle.numero_transferencia}</div>
-                              )}
-                              {detalle.numero_voucher && (
-                                <div className="text-xs text-gray-600">Voucher: {detalle.numero_voucher}</div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-2 text-right font-semibold">
-                            Q {detalle.precio.toFixed(2)}
-                          </td>
+                      {consultasAnuladas.map((anulada, index) => (
+                        <tr key={index} className="border-t bg-red-50">
+                          <td className="px-4 py-2 font-semibold">{anulada.nombre}</td>
+                          <td className="px-4 py-2">Q {anulada.total.toFixed(2)}</td>
+                          <td className="px-4 py-2 text-sm">{anulada.usuario_anulo}</td>
+                          <td className="px-4 py-2 text-sm text-gray-700">{anulada.motivo_anulacion}</td>
                         </tr>
                       ))}
                     </tbody>
