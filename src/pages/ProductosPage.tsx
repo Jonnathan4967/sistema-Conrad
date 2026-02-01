@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 interface Estudio {
   id: string;
   nombre: string;
+  porcentaje_comision?: number;
   activo: boolean;
 }
 
@@ -35,6 +36,7 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
   
   // Formulario estudio
   const [nombreEstudio, setNombreEstudio] = useState('');
+  const [porcentajeComision, setPorcentajeComision] = useState('');
   
   // Formulario sub-estudio
   const [nombreSubEstudio, setNombreSubEstudio] = useState('');
@@ -61,10 +63,15 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
     if (!nombreEstudio.trim()) return;
 
     try {
+      const dataEstudio = {
+        nombre: nombreEstudio,
+        porcentaje_comision: parseFloat(porcentajeComision) || 0
+      };
+
       if (editando) {
-        await supabase.from('estudios').update({ nombre: nombreEstudio }).eq('id', editando.id);
+        await supabase.from('estudios').update(dataEstudio).eq('id', editando.id);
       } else {
-        await supabase.from('estudios').insert([{ nombre: nombreEstudio }]);
+        await supabase.from('estudios').insert([dataEstudio]);
       }
       
       cargarEstudios();
@@ -135,6 +142,7 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
     if (estudio) {
       setEditando(estudio);
       setNombreEstudio(estudio.nombre);
+      setPorcentajeComision(estudio.porcentaje_comision?.toString() || '0');
     }
     setShowModalEstudio(true);
   };
@@ -143,6 +151,7 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
     setShowModalEstudio(false);
     setEditando(null);
     setNombreEstudio('');
+    setPorcentajeComision('');
   };
 
   const abrirModalSubEstudio = (subEstudio?: SubEstudio) => {
@@ -175,12 +184,14 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-blue-700 text-white p-4 shadow-lg">
-        <div className="container mx-auto flex items-center gap-4">
-          <button onClick={onBack} className="hover:bg-blue-600 p-2 rounded">
-            <ArrowLeft size={24} />
+      <header className="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg">
+        <div className="container mx-auto px-4 py-6">
+          <button onClick={onBack} className="flex items-center gap-2 text-white hover:text-blue-100 mb-4 transition-colors">
+            <ArrowLeft size={20} />
+            Volver al Dashboard
           </button>
           <h1 className="text-3xl font-bold">Gestión de Productos</h1>
+          <p className="text-blue-100 mt-2">Catálogo de estudios y servicios</p>
         </div>
       </header>
 
@@ -199,7 +210,12 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
             <div className="space-y-2">
               {estudios.filter(e => e.activo).map(estudio => (
                 <div key={estudio.id} className="flex justify-between items-center p-3 bg-gray-50 rounded hover:bg-gray-100">
-                  <span className="font-medium">{estudio.nombre}</span>
+                  <div className="flex-1">
+                    <span className="font-medium">{estudio.nombre}</span>
+                    <span className="ml-3 text-sm text-gray-600">
+                      Comisión: <span className="font-semibold text-green-700">{estudio.porcentaje_comision || 0}%</span>
+                    </span>
+                  </div>
                   <div className="flex gap-2">
                     <button onClick={() => abrirModalEstudio(estudio)} className="text-blue-600 hover:text-blue-800">
                       <Edit2 size={18} />
@@ -294,6 +310,23 @@ export const ProductosPage: React.FC<ProductosPageProps> = ({ onBack }) => {
                 onChange={(e) => setNombreEstudio(e.target.value)}
                 placeholder="Ej: Rayos X"
               />
+            </div>
+
+            <div className="mb-4">
+              <label className="label">Porcentaje de Comisión (%)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                className="input-field"
+                value={porcentajeComision}
+                onChange={(e) => setPorcentajeComision(e.target.value)}
+                placeholder="Ej: 15"
+              />
+              <p className="text-xs text-gray-600 mt-1">
+                Si es 0%, no aparecerá en el reporte de comisiones
+              </p>
             </div>
 
             <div className="flex gap-3 justify-end">

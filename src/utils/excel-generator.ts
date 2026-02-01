@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 
 interface Consulta {
   fecha: string;
+  created_at: string;
   pacientes: {
     nombre: string;
     edad: number;
@@ -23,6 +24,11 @@ interface Consulta {
   forma_pago: string;
   detalle_consultas: Array<{
     precio: number;
+    es_referido_medico?: boolean;
+    numero_factura?: string;
+    nit?: string;
+    numero_voucher?: string;
+    numero_transferencia?: string;
     sub_estudios: {
       nombre: string;
       estudios: {
@@ -238,8 +244,24 @@ async function crearHojaDiaria(
       .map(d => d.sub_estudios?.nombre || '')
       .join(', ');
     
-    const fechaConsulta = new Date(consulta.fecha + 'T12:00:00');
-    const esInhabil = fechaConsulta.getDay() === 0 || fechaConsulta.getDay() === 6;
+    // Calcular si es horario inhábil
+    const fechaConsulta = new Date(consulta.created_at); // Usar created_at que tiene hora
+    const diaSemana = fechaConsulta.getDay(); // 0=Domingo, 6=Sábado
+    const hora = fechaConsulta.getHours();
+    
+    let esInhabil = false;
+    
+    if (diaSemana === 0) {
+      // Domingo: TODO inhábil
+      esInhabil = true;
+    } else if (diaSemana === 6) {
+      // Sábado: inhábil después de 11 AM o antes de 7 AM
+      esInhabil = hora < 7 || hora >= 11;
+    } else {
+      // Lunes a viernes: inhábil después de 4 PM (16:00) o antes de 7 AM
+      esInhabil = hora < 7 || hora >= 16;
+    }
+    
     const estudioTexto = esInhabil ? `${nombresEstudios.toUpperCase()} INHABIL` : nombresEstudios.toUpperCase();
 
     // Sumar TODOS los precios
@@ -302,11 +324,29 @@ async function crearHojaDiaria(
       }
     })();
 
+    // Recolectar TODAS las facturas (consulta principal + estudios individuales)
+    const facturas: string[] = [];
+    
+    // Factura de la consulta principal
+    if (consulta.numero_factura) {
+      facturas.push(consulta.numero_factura);
+    }
+    
+    // Facturas de estudios individuales
+    consulta.detalle_consultas.forEach(det => {
+      if (det.numero_factura) {
+        facturas.push(det.numero_factura);
+      }
+    });
+    
+    // Unir todas las facturas separadas por coma
+    const todasLasFacturas = facturas.length > 0 ? facturas.join(', ') : '';
+
     const valoresFila: any[] = [
       idx + 1,
       consulta.pacientes.nombre.toUpperCase(),
       edadFormateada,
-      consulta.numero_factura || '',
+      todasLasFacturas, // ✅ Todas las facturas concatenadas
       estudioTexto,
       nombreMedico.toUpperCase(),
       consulta.tipo_cobro === 'social' ? precioTotal : '',
@@ -347,7 +387,7 @@ async function crearHojaDiaria(
 
       if (colIdx === 0 || colIdx === 2) {
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      } else if (colIdx >= 7 && colIdx < valoresFila.length - 1) { // Cambiado de 6 a 7
+      } else if (colIdx >= 7 && colIdx < valoresFila.length - 1) {
         cell.alignment = { horizontal: 'right', vertical: 'middle' };
       } else if (colIdx === valoresFila.length - 1) {
         cell.alignment = { horizontal: 'center', vertical: 'middle' };

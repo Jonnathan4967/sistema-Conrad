@@ -23,6 +23,7 @@ export const AgregarEstudioModal: React.FC<AgregarEstudioModalProps> = ({
   const [nuevosEstudios, setNuevosEstudios] = useState<any[]>([]);
   const [tipoCobro, setTipoCobro] = useState<TipoCobro>(consulta.tipo_cobro);
   const [formaPago, setFormaPago] = useState<string>(consulta.forma_pago);
+  const [requiereFactura, setRequiereFactura] = useState<boolean>(consulta.requiere_factura || false);
 
   useEffect(() => {
     cargarEstudios();
@@ -97,21 +98,64 @@ export const AgregarEstudioModal: React.FC<AgregarEstudioModalProps> = ({
     }
 
     try {
-      // Actualizar forma de pago de la consulta
+      // Capturar datos según forma de pago y factura
+      let numeroFactura = null;
+      let nit = null;
+      let numeroVoucher = null;
+      let numeroTransferencia = null;
+
+      // Si requiere factura, pedir número de factura y NIT
+      if (requiereFactura) {
+        const facturaInput = prompt('Ingrese el número de factura:');
+        if (facturaInput && facturaInput.trim() !== '') {
+          numeroFactura = facturaInput.trim();
+        }
+
+        const nitInput = prompt('Ingrese el NIT (o C/F si es consumidor final):');
+        if (nitInput && nitInput.trim() !== '') {
+          nit = nitInput.trim();
+        }
+      }
+
+      // Si es tarjeta, pedir número de voucher
+      if (formaPago === 'tarjeta') {
+        const voucherInput = prompt('Ingrese el número de voucher de tarjeta:');
+        if (voucherInput && voucherInput.trim() !== '') {
+          numeroVoucher = voucherInput.trim();
+        }
+      }
+
+      // Si es transferencia, pedir número de transferencia
+      if (formaPago === 'transferencia') {
+        const transferenciaInput = prompt('Ingrese el número de transferencia:');
+        if (transferenciaInput && transferenciaInput.trim() !== '') {
+          numeroTransferencia = transferenciaInput.trim();
+        }
+      }
+
+      // Actualizar forma de pago y requiere_factura de la consulta
       const { error: errorConsulta } = await supabase
         .from('consultas')
-        .update({ forma_pago: formaPago })
+        .update({ 
+          forma_pago: formaPago,
+          requiere_factura: requiereFactura
+        })
         .eq('id', consulta.id);
 
       if (errorConsulta) throw errorConsulta;
 
-      // Insertar nuevos detalles marcados como adicionales
+      // Insertar nuevos detalles con sus datos individuales
       const detalles = nuevosEstudios.map(e => ({
         consulta_id: consulta.id,
         sub_estudio_id: e.sub_estudio_id,
         precio: e.precio,
         es_adicional: true,
-        fecha_agregado: new Date().toISOString()
+        fecha_agregado: new Date().toISOString(),
+        // ✅ Guardar datos individuales en cada detalle
+        numero_factura: numeroFactura,
+        nit: nit,
+        numero_voucher: numeroVoucher,
+        numero_transferencia: numeroTransferencia
       }));
 
       const { error } = await supabase
@@ -246,6 +290,33 @@ export const AgregarEstudioModal: React.FC<AgregarEstudioModalProps> = ({
             <option value="estado_cuenta">Estado de Cuenta</option>
             <option value="efectivo_facturado">Efectivo Facturado</option>
           </select>
+        </div>
+
+        {/* Opción de factura */}
+        <div className="card mb-4">
+          <h3 className="text-sm font-semibold mb-3">¿Requiere Factura?</h3>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setRequiereFactura(true)}
+              className={`flex-1 py-2 px-4 rounded-lg border-2 font-medium transition-all ${
+                requiereFactura
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-gray-300 hover:border-blue-300'
+              }`}
+            >
+              Sí
+            </button>
+            <button
+              onClick={() => setRequiereFactura(false)}
+              className={`flex-1 py-2 px-4 rounded-lg border-2 font-medium transition-all ${
+                !requiereFactura
+                  ? 'border-gray-500 bg-gray-50 text-gray-700'
+                  : 'border-gray-300 hover:border-gray-300'
+              }`}
+            >
+              No
+            </button>
+          </div>
         </div>
 
         {/* Selector de estudios */}

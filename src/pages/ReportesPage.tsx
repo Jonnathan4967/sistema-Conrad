@@ -77,7 +77,11 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
               nombre,
               estudios(id, nombre)
             ),
-            precio
+            precio,
+            numero_factura,
+            nit,
+            numero_voucher,
+            numero_transferencia
           )
         `)
         .gte('fecha', primerDia)
@@ -138,13 +142,14 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <button onClick={onBack} className="text-blue-600 hover:text-blue-700 mb-2 flex items-center gap-2">
+      <div className="bg-gradient-to-r from-green-600 to-green-700 text-white shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <button onClick={onBack} className="text-white hover:text-green-100 mb-4 flex items-center gap-2 transition-colors">
             <ArrowLeft size={20} />
-            Volver
+            Volver al Dashboard
           </button>
-          <h1 className="text-2xl font-bold">Generar Reportes</h1>
+          <h1 className="text-3xl font-bold">Generar Reportes</h1>
+          <p className="text-green-100 mt-2">Exportación de datos a Excel</p>
         </div>
       </div>
 

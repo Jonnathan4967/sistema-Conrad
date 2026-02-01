@@ -82,15 +82,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const cargarCuadre = async () => {
     setLoading(true);
     try {
-      // Calcular rango de horario: 7 AM del día seleccionado hasta 7 AM del día siguiente
-      const fechaInicio = new Date(fecha + 'T07:00:00');
-      const fechaFin = new Date(fecha + 'T07:00:00');
-      fechaFin.setDate(fechaFin.getDate() + 1); // Agregar un día
-      
-      const fechaInicioISO = fechaInicio.toISOString();
-      const fechaFinISO = fechaFin.toISOString();
-      
-      // Obtener consultas del día (7 AM a 7 AM)
+      // Obtener consultas del día (12 AM a 12 AM - medianoche a medianoche)
       const { data: consultas, error: errorConsultas } = await supabase
         .from('consultas')
         .select(`
@@ -98,8 +90,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           pacientes(nombre),
           medicos(nombre)
         `)
-        .gte('created_at', fechaInicioISO)
-        .lt('created_at', fechaFinISO);
+        .eq('fecha', fecha);
 
       if (errorConsultas) throw errorConsultas;
 
@@ -589,12 +580,14 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-blue-700 text-white p-4 shadow-lg">
-        <div className="container mx-auto flex items-center gap-4">
-          <button onClick={onBack} className="hover:bg-blue-600 p-2 rounded">
-            <ArrowLeft size={24} />
+      <header className="bg-gradient-to-r from-green-600 to-green-700 text-white shadow-lg">
+        <div className="container mx-auto px-4 py-6">
+          <button onClick={onBack} className="flex items-center gap-2 text-white hover:text-green-100 mb-4 transition-colors">
+            <ArrowLeft size={20} />
+            Volver al Dashboard
           </button>
           <h1 className="text-3xl font-bold">Cuadre Diario</h1>
+          <p className="text-green-100 mt-2">Control de caja y ventas del día</p>
         </div>
       </header>
 

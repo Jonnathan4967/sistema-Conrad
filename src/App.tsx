@@ -10,6 +10,7 @@ import { CuadreQuincenalPage } from './pages/CuadreQuincenalPage';
 import { EstadisticasPage } from './pages/EstadisticasPage';
 import { ReportesPage } from './pages/ReportesPage';
 import { GestionUsuariosPage } from './pages/GestionUsuariosPage';
+import { ComisionesPage } from './pages/ComisionesPage';
 
 // Módulo de Inventario
 import { InventarioHomePage } from './pages/InventarioHomePage';
@@ -84,6 +85,8 @@ function App() {
           return <EstadisticasPage onBack={() => setCurrentPage('home')} />;
         case 'reportes':
           return <ReportesPage onBack={() => setCurrentPage('home')} />;
+        case 'comisiones':
+          return <ComisionesPage onBack={() => setCurrentPage('home')} />;
         case 'usuarios':
           return <GestionUsuariosPage onBack={() => setCurrentPage('home')} />;
         default:
@@ -93,15 +96,17 @@ function App() {
 
     return (
       <div>
-        {/* Botón para volver al dashboard */}
-        <div className="fixed top-4 right-4 z-50">
-          <button
-            onClick={handleBackToDashboard}
-            className="bg-white shadow-md px-3 py-1.5 rounded hover:bg-gray-50 transition-colors text-xs font-medium border border-gray-300"
-          >
-            ← Dashboard
-          </button>
-        </div>
+        {/* Botón para volver al dashboard - SOLO en HomePage */}
+        {currentPage === 'home' && (
+          <div className="fixed top-4 right-4 z-50">
+            <button
+              onClick={handleBackToDashboard}
+              className="bg-white shadow-md px-3 py-1.5 rounded hover:bg-gray-50 transition-colors text-xs font-medium border border-gray-300"
+            >
+              ← Dashboard
+            </button>
+          </div>
+        )}
         {renderPage()}
       </div>
     );
@@ -128,14 +133,16 @@ function App() {
 
     return (
       <div>
-        <div className="fixed top-4 right-4 z-50">
-          <button
-            onClick={handleBackToDashboard}
-            className="bg-white shadow-md px-3 py-1.5 rounded hover:bg-gray-50 transition-colors text-xs font-medium border border-gray-300"
-          >
-            ← Dashboard
-          </button>
-        </div>
+        {currentPage === 'home' && (
+          <div className="fixed top-4 right-4 z-50">
+            <button
+              onClick={handleBackToDashboard}
+              className="bg-white shadow-md px-3 py-1.5 rounded hover:bg-gray-50 transition-colors text-xs font-medium border border-gray-300"
+            >
+              ← Dashboard
+            </button>
+          </div>
+        )}
         {renderPage()}
       </div>
     );

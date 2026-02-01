@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, FileText, Users, BarChart3, Trash2, FileSpreadsheet, Settings, Calendar } from 'lucide-react';
+import { Plus, FileText, Users, BarChart3, Trash2, FileSpreadsheet, Settings, Calendar, DollarSign } from 'lucide-react';
 import { NuevoPacienteModal } from '../components/NuevoPacienteModal';
 import { Autocomplete } from '../components/Autocomplete';
 import { Paciente, Medico, SubEstudio, TipoCobro, FormaPago, DetalleConsulta } from '../types';
@@ -274,12 +274,14 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     const totales = calcularTotales();
 
     try {
-      // Calcular el próximo número de paciente SOLO PARA HOY
+      // Calcular el próximo número de paciente del día
       const fechaHoy = format(new Date(), 'yyyy-MM-dd');
+      
       const { data: ultimaConsulta } = await supabase
         .from('consultas')
         .select('numero_paciente')
         .eq('fecha', fechaHoy)
+        .or('anulado.is.null,anulado.eq.false') // Solo contar las activas
         .order('numero_paciente', { ascending: false })
         .limit(1)
         .single();
@@ -404,9 +406,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-blue-700 text-white p-4 shadow-lg">
-        <div className="container mx-auto">
+      <header className="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg">
+        <div className="container mx-auto px-4 py-6">
           <h1 className="text-3xl font-bold">CONRAD - Centro de Diagnóstico</h1>
+          <p className="text-blue-100 mt-2">Sistema de Gestión de Consultas</p>
         </div>
       </header>
 
@@ -469,6 +472,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           >
             <FileSpreadsheet size={20} />
             Reportes
+          </button>
+          <button 
+            onClick={() => onNavigate('comisiones')}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <DollarSign size={20} />
+            Comisiones
           </button>
         </div>
       </div>

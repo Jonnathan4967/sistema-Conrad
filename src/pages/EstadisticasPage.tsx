@@ -183,14 +183,14 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-6">
-          <button onClick={onBack} className="text-white hover:text-blue-100 mb-4 flex items-center gap-2">
+          <button onClick={onBack} className="text-white hover:text-blue-100 mb-4 flex items-center gap-2 transition-colors">
             <ArrowLeft size={20} />
-            Volver
+            Volver al Dashboard
           </button>
           <h1 className="text-3xl font-bold">Estadísticas</h1>
-          <p className="text-blue-100 mt-1">Análisis de consultas y rendimiento</p>
+          <p className="text-blue-100 mt-2">Análisis de consultas y rendimiento</p>
         </div>
       </div>
 

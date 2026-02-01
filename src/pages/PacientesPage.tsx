@@ -61,17 +61,19 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       return;
     }
 
-    if (!confirm(`¿ANULAR esta consulta?\n\nMotivo: ${motivo}\n\nQuedar registrada para auditoría.`)) {
+    if (!confirm(`¿ANULAR esta consulta?\n\nMotivo: ${motivo}\n\nLos pacientes posteriores se renumerarán automáticamente.`)) {
       return;
     }
 
     try {
       const usuarioActual = localStorage.getItem('nombreUsuarioConrad') || 'Desconocido';
       
+      // Anular la consulta y quitar su número
       const { error } = await supabase
         .from('consultas')
         .update({
           anulado: true,
+          numero_paciente: null, // Quitar el número
           fecha_anulacion: new Date().toISOString(),
           usuario_anulo: usuarioActual,
           motivo_anulacion: motivo
@@ -80,15 +82,18 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
       if (error) throw error;
 
+      // ✅ Renumerar todos los pacientes NO anulados posteriores (bajar en 1)
       const { data: consultasPosteriores, error: errorConsultar } = await supabase
         .from('consultas')
         .select('id, numero_paciente')
         .eq('fecha', fecha)
-        .eq('anulado', false)
-        .gt('numero_paciente', numeroEliminado);
+        .or('anulado.is.null,anulado.eq.false') // Solo las activas
+        .gt('numero_paciente', numeroEliminado)
+        .order('numero_paciente', { ascending: true });
 
       if (errorConsultar) throw errorConsultar;
 
+      // Renumerar cada consulta posterior
       if (consultasPosteriores && consultasPosteriores.length > 0) {
         for (const consulta of consultasPosteriores) {
           const { error: errorActualizar } = await supabase
@@ -100,7 +105,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         }
       }
 
-      alert(`✅ ANULADA\nUsuario: ${usuarioActual}\nMotivo: ${motivo}`);
+      alert(`✅ CONSULTA ANULADA\n\nUsuario: ${usuarioActual}\nMotivo: ${motivo}\n\n${consultasPosteriores?.length || 0} pacientes renumerados.`);
       cargarConsultas();
     } catch (error) {
       console.error('Error al eliminar consulta:', error);
@@ -454,12 +459,14 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-blue-700 text-white p-4 shadow-lg">
-        <div className="container mx-auto flex items-center gap-4">
-          <button onClick={onBack} className="hover:bg-blue-600 p-2 rounded">
-            <ArrowLeft size={24} />
+      <header className="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg">
+        <div className="container mx-auto px-4 py-6">
+          <button onClick={onBack} className="flex items-center gap-2 text-white hover:text-blue-100 mb-4 transition-colors">
+            <ArrowLeft size={20} />
+            Volver al Dashboard
           </button>
           <h1 className="text-3xl font-bold">Gestión de Pacientes</h1>
+          <p className="text-blue-100 mt-2">Consultas y seguimiento del día</p>
         </div>
       </header>
 
@@ -541,7 +548,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                       <div className="flex justify-between items-start mb-4">
                         <div>
                           <h3 className={`text-lg font-bold ${consulta.anulado ? 'text-red-700 line-through' : 'text-blue-700'}`}>
-                            #{consulta.numero_paciente || (index + 1)} - {consulta.pacientes.nombre}
+                            {consulta.anulado ? '#ANULADO' : `#${consulta.numero_paciente || (index + 1)}`} - {consulta.pacientes.nombre}
                           </h3>
                           <p className="text-sm text-gray-600">
                             Edad: {consulta.pacientes.edad} años | Tel: {consulta.pacientes.telefono}
@@ -624,16 +631,40 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                           <p className="text-sm font-semibold text-gray-700 mb-2">Estudios Realizados</p>
                           <ul className="text-sm space-y-2">
                             {consulta.detalle_consultas.map((detalle: any) => (
-                              <li key={detalle.id} className="flex justify-between items-center gap-2 p-2 bg-gray-50 rounded hover:bg-gray-100">
-                                <span className="flex-1">• {detalle.sub_estudios.nombre}</span>
-                                <span className="font-medium">Q {detalle.precio.toFixed(2)}</span>
-                                <button
-                                  onClick={() => eliminarEstudio(consulta.id, detalle.id, detalle.precio)}
-                                  className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                  title="Eliminar estudio"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
+                              <li key={detalle.id} className="p-2 bg-gray-50 rounded hover:bg-gray-100">
+                                <div className="flex justify-between items-center gap-2">
+                                  <span className="flex-1">• {detalle.sub_estudios.nombre}</span>
+                                  <span className="font-medium">Q {detalle.precio.toFixed(2)}</span>
+                                  <button
+                                    onClick={() => eliminarEstudio(consulta.id, detalle.id, detalle.precio)}
+                                    className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                    title="Eliminar estudio"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                                {/* Mostrar factura individual si el estudio la tiene */}
+                                {detalle.numero_factura && (
+                                  <div className="text-xs text-gray-600 mt-1 ml-4">
+                                    <span className="bg-blue-100 px-2 py-1 rounded">
+                                      Factura: {detalle.numero_factura} {detalle.nit && `| NIT: ${detalle.nit}`}
+                                    </span>
+                                  </div>
+                                )}
+                                {detalle.numero_voucher && (
+                                  <div className="text-xs text-gray-600 mt-1 ml-4">
+                                    <span className="bg-green-100 px-2 py-1 rounded">
+                                      Voucher: {detalle.numero_voucher}
+                                    </span>
+                                  </div>
+                                )}
+                                {detalle.numero_transferencia && (
+                                  <div className="text-xs text-gray-600 mt-1 ml-4">
+                                    <span className="bg-purple-100 px-2 py-1 rounded">
+                                      Transferencia: {detalle.numero_transferencia}
+                                    </span>
+                                  </div>
+                                )}
                               </li>
                             ))}
                           </ul>
