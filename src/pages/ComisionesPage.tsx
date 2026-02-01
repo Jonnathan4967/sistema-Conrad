@@ -112,9 +112,27 @@ export const ComisionesPage: React.FC<ComisionesPageProps> = ({ onBack }) => {
         const medico = medicoMap.get(medicoId)!;
         medico.total_pacientes++;
 
-        // ✅ IMPORTANTE: Solo calcular comisión si el tipo de cobro es "normal" o "especial"
-        // Social y personalizado NO generan comisión
-        const generaComision = consulta.tipo_cobro === 'normal' || consulta.tipo_cobro === 'especial';
+        // ✅ IMPORTANTE: Genera comisión SOLO si:
+        // 1. Tipo de cobro es "normal" o "especial"
+        // 2. Y forma de pago NO es "estado_cuenta"
+        const generaComision = 
+          (consulta.tipo_cobro === 'normal' || consulta.tipo_cobro === 'especial') 
+          && consulta.forma_pago !== 'estado_cuenta';
+
+        if (generaComision) {
+          // Calcular comisión por cada estudio
+          consulta.detalle_consultas?.forEach(detalle => {
+            const estudioNombre = detalle.sub_estudios?.estudios?.nombre || '';
+            const porcentaje = detalle.sub_estudios?.estudios?.porcentaje_comision || 0;
+            
+            if (porcentaje > 0) {
+              const comision = detalle.precio * (porcentaje / 100);
+              medico.comisiones_por_estudio[estudioNombre] = 
+                (medico.comisiones_por_estudio[estudioNombre] || 0) + comision;
+              medico.total_comision += comision;
+            }
+          });
+        }
 
         if (generaComision) {
           // Calcular comisión por cada estudio
@@ -135,14 +153,17 @@ export const ComisionesPage: React.FC<ComisionesPageProps> = ({ onBack }) => {
           nombre: consulta.pacientes?.nombre,
           fecha: consulta.fecha,
           tipo_cobro: consulta.tipo_cobro,
+          forma_pago: consulta.forma_pago,
           genera_comision: generaComision,
           estudios: consulta.detalle_consultas
         });
       });
 
-      setMedicos(Array.from(medicoMap.values()).sort((a, b) => 
-        b.total_comision - a.total_comision
-      ));
+      setMedicos(
+        Array.from(medicoMap.values())
+          .filter(m => m.total_comision > 0) // ✅ Solo mostrar médicos con comisión
+          .sort((a, b) => b.total_comision - a.total_comision)
+      );
     } catch (error) {
       console.error('Error al calcular comisiones:', error);
       alert('Error al calcular comisiones');
@@ -398,20 +419,34 @@ export const ComisionesPage: React.FC<ComisionesPageProps> = ({ onBack }) => {
 
         {/* Info sobre tipos de cobro */}
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold text-green-900 mb-2">💰 Tipos de Cobro que Generan Comisión:</h3>
-          <div className="flex flex-wrap gap-3">
-            <span className="bg-green-100 px-4 py-2 rounded-lg text-sm font-medium text-green-800 border border-green-300">
-              ✓ NORMAL - Genera comisión
-            </span>
-            <span className="bg-green-100 px-4 py-2 rounded-lg text-sm font-medium text-green-800 border border-green-300">
-              ✓ ESPECIAL - Genera comisión
-            </span>
-            <span className="bg-gray-100 px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-300">
-              ✗ SOCIAL - NO genera comisión
-            </span>
-            <span className="bg-gray-100 px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-300">
-              ✗ PERSONALIZADO - NO genera comisión
-            </span>
+          <h3 className="font-semibold text-green-900 mb-3">💰 Reglas de Comisión:</h3>
+          
+          <div className="mb-3">
+            <p className="text-sm font-semibold text-green-800 mb-2">✅ GENERA COMISIÓN:</p>
+            <div className="flex flex-wrap gap-2 ml-4">
+              <span className="bg-green-100 px-3 py-1 rounded-lg text-sm font-medium text-green-800 border border-green-300">
+                Tipo: NORMAL o ESPECIAL
+              </span>
+              <span className="text-sm text-green-700">+</span>
+              <span className="bg-green-100 px-3 py-1 rounded-lg text-sm font-medium text-green-800 border border-green-300">
+                Forma de pago: CUALQUIERA excepto Estado de Cuenta
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold text-gray-800 mb-2">❌ NO GENERA COMISIÓN:</p>
+            <div className="flex flex-wrap gap-2 ml-4">
+              <span className="bg-gray-100 px-3 py-1 rounded-lg text-sm font-medium text-gray-600 border border-gray-300">
+                Tipo: SOCIAL
+              </span>
+              <span className="bg-gray-100 px-3 py-1 rounded-lg text-sm font-medium text-gray-600 border border-gray-300">
+                Tipo: PERSONALIZADO
+              </span>
+              <span className="bg-red-100 px-3 py-1 rounded-lg text-sm font-medium text-red-700 border border-red-300">
+                Forma de pago: ESTADO DE CUENTA
+              </span>
+            </div>
           </div>
         </div>
 
@@ -531,7 +566,10 @@ export const ComisionesPage: React.FC<ComisionesPageProps> = ({ onBack }) => {
                               </span>
                             ) : (
                               <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded font-medium">
-                                {p.tipo_cobro === 'social' ? 'Social' : 'Personalizado'}
+                                {p.tipo_cobro === 'social' ? '❌ Social' : 
+                                 p.tipo_cobro === 'personalizado' ? '❌ Personalizado' :
+                                 p.forma_pago === 'estado_cuenta' ? '❌ Estado de Cuenta' :
+                                 '❌ Sin comisión'}
                               </span>
                             )}
                           </div>

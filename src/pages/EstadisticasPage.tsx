@@ -44,8 +44,8 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
   const cargarEstadisticas = async () => {
     setLoading(true);
     try {
-      // Obtener consultas del período
-      const { data: consultas, error } = await supabase
+      // Obtener consultas del período (excluyendo anuladas)
+      const { data: consultasRaw, error } = await supabase
         .from('consultas')
         .select(`
           *,
@@ -64,6 +64,9 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
         .order('fecha', { ascending: true });
 
       if (error) throw error;
+
+      // ✅ Filtrar consultas anuladas
+      const consultas = consultasRaw?.filter(c => c.anulado !== true) || [];
 
       if (!consultas || consultas.length === 0) {
         setLoading(false);
