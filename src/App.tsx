@@ -12,6 +12,7 @@ import { ReportesPage } from './pages/ReportesPage';
 import { GestionUsuariosPage } from './pages/GestionUsuariosPage';
 import { ComisionesPage } from './pages/ComisionesPage';
 import { ContabilidadPage } from './pages/ContabilidadPage';
+import { PersonalPage } from './pages/PersonalPage';
 
 // Módulo de Inventario
 import { InventarioHomePage } from './pages/InventarioHomePage';
@@ -154,6 +155,10 @@ function App() {
   // Si está en el módulo de visitadoras médicas
   if (currentModule === 'contabilidad') {
     return <ContabilidadPage onBack={handleBackToDashboard} />;
+  }
+
+  if (currentModule === 'personal') {
+    return <PersonalPage onBack={handleBackToDashboard} />;
   }
 
   if (currentModule === 'visitadoras') {

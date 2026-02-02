@@ -11,10 +11,16 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
+import { GastosPage } from './GastosPage';
+import { IngresosPage } from './IngresosPage';
+import { ProveedoresContabilidadPage } from './ProveedoresContabilidadPage';
+import { ReportesFinancierosPage } from './ReportesFinancierosPage';
 
 interface ContabilidadPageProps {
   onBack: () => void;
 }
+
+type Vista = 'dashboard' | 'ingresos' | 'gastos' | 'proveedores' | 'reportes';
 
 export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) => {
   const [mes, setMes] = useState(new Date().getMonth() + 1);
@@ -29,7 +35,7 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
     ingresosAdicionales: 0
   });
 
-  const [vistaActual, setVistaActual] = useState<'dashboard' | 'ingresos' | 'gastos' | 'proveedores' | 'reportes'>('dashboard');
+  const [vistaActual, setVistaActual] = useState<Vista>('dashboard');
 
   const meses = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -98,33 +104,23 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
     }
   };
 
-  if (vistaActual !== 'dashboard') {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-gradient-to-r from-green-600 to-green-700 text-white shadow-lg">
-          <div className="max-w-7xl mx-auto px-4 py-6">
-            <button 
-              onClick={() => setVistaActual('dashboard')} 
-              className="text-white hover:text-green-100 mb-4 flex items-center gap-2"
-            >
-              <ArrowLeft size={20} />
-              Volver al Dashboard
-            </button>
-            <h1 className="text-3xl font-bold">
-              {vistaActual === 'ingresos' && '💰 Gestión de Ingresos'}
-              {vistaActual === 'gastos' && '📉 Gestión de Gastos'}
-              {vistaActual === 'proveedores' && '👥 Proveedores'}
-              {vistaActual === 'reportes' && '📊 Reportes Financieros'}
-            </h1>
-          </div>
-        </header>
-        <div className="max-w-7xl mx-auto px-4 py-8">
-          <p className="text-gray-600">Funcionalidad en desarrollo...</p>
-        </div>
-      </div>
-    );
+  if (vistaActual === 'gastos') {
+    return <GastosPage onBack={() => setVistaActual('dashboard')} />;
   }
 
+  if (vistaActual === 'ingresos') {
+    return <IngresosPage onBack={() => setVistaActual('dashboard')} />;
+  }
+
+  if (vistaActual === 'proveedores') {
+    return <ProveedoresContabilidadPage onBack={() => setVistaActual('dashboard')} />;
+  }
+
+  if (vistaActual === 'reportes') {
+    return <ReportesFinancierosPage onBack={() => setVistaActual('dashboard')} />;
+  }
+
+  // Vista Dashboard
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}

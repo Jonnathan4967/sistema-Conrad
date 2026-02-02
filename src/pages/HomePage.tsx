@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, FileText, Users, BarChart3, Trash2, FileSpreadsheet, Settings, Calendar, DollarSign, Banknote } from 'lucide-react';
+import { Plus, FileText, Users, BarChart3, Trash2, FileSpreadsheet, Settings, Calendar, DollarSign } from 'lucide-react';
 import { NuevoPacienteModal } from '../components/NuevoPacienteModal';
 import { Autocomplete } from '../components/Autocomplete';
 import { Paciente, Medico, SubEstudio, TipoCobro, FormaPago, DetalleConsulta } from '../types';
@@ -507,13 +507,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           >
             <DollarSign size={20} />
             Comisiones
-          </button>
-          <button
-            onClick={() => onNavigate('contabilidad')}
-            className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
-          >
-            <Banknote size={20} />
-            Contabilidad
           </button>
         </div>
       </div>
