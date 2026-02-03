@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Save, AlertCircle, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Save, Plus, Trash2, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { generarCuadreExcel } from '../utils/cuadre-excel-generator';
@@ -22,10 +22,8 @@ interface CuadreDiarioPageProps {
 }
 
 export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) => {
-  // Función para obtener fecha actual en Guatemala (UTC-6)
   const getFechaGuatemala = () => {
     const ahora = new Date();
-    // Ajustar a hora de Guatemala (UTC-6)
     const guatemalaTime = new Date(ahora.getTime() - (6 * 60 * 60 * 1000));
     return guatemalaTime.toISOString().split('T')[0];
   };
@@ -35,10 +33,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const [detalles, setDetalles] = useState<any[]>([]);
   const [consultasAnuladas, setConsultasAnuladas] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [agruparPorPaciente, setAgruparPorPaciente] = useState(false);
-  const [pacientesExpandidos, setPacientesExpandidos] = useState<Set<string>>(new Set());
   
-  // ✅ NUEVO: Estados para cuadre de móviles
+  // Estados para cuadre de móviles
   const [cuadreMoviles, setCuadreMoviles] = useState<CuadreDiario | null>(null);
   const [detallesMoviles, setDetallesMoviles] = useState<any[]>([]);
   
@@ -49,52 +45,25 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const [observaciones, setObservaciones] = useState('');
   const [mostrarCuadre, setMostrarCuadre] = useState(false);
   
-  // Estados para gastos del día
+  // Estados para gastos
   const [gastos, setGastos] = useState<any[]>([]);
   const [showModalGasto, setShowModalGasto] = useState(false);
   const [conceptoGasto, setConceptoGasto] = useState('');
   const [montoGasto, setMontoGasto] = useState('');
 
+  // ✅ NUEVO: Estados para colapsar secciones
+  const [mostrarDetallesMoviles, setMostrarDetallesMoviles] = useState(false);
+  const [mostrarDetallesRegulares, setMostrarDetallesRegulares] = useState(false);
+  const [mostrarGastos, setMostrarGastos] = useState(true);
+  const [mostrarAnuladas, setMostrarAnuladas] = useState(false);
+
   useEffect(() => {
     cargarCuadre();
   }, [fecha]);
 
-  // Agrupar estudios por paciente
-  const agruparEstudiosPorPaciente = () => {
-    const agrupado: { [key: string]: any } = {};
-    
-    detalles.forEach(detalle => {
-      const key = detalle.paciente;
-      if (!agrupado[key]) {
-        agrupado[key] = {
-          paciente: detalle.paciente,
-          estudios: [],
-          total: 0,
-          formasPago: new Set()
-        };
-      }
-      agrupado[key].estudios.push(detalle);
-      agrupado[key].total += detalle.precio;
-      agrupado[key].formasPago.add(detalle.forma_pago);
-    });
-    
-    return Object.values(agrupado);
-  };
-
-  const togglePaciente = (paciente: string) => {
-    const nuevosExpandidos = new Set(pacientesExpandidos);
-    if (nuevosExpandidos.has(paciente)) {
-      nuevosExpandidos.delete(paciente);
-    } else {
-      nuevosExpandidos.add(paciente);
-    }
-    setPacientesExpandidos(nuevosExpandidos);
-  };
-
   const cargarCuadre = async () => {
     setLoading(true);
     try {
-      // Obtener consultas del día (12 AM a 12 AM - medianoche a medianoche)
       const { data: consultas, error: errorConsultas } = await supabase
         .from('consultas')
         .select(`
@@ -106,7 +75,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       if (errorConsultas) throw errorConsultas;
 
-      // ✅ MODIFICADO: Separar consultas regulares y móviles
       const consultasRegulares = consultas?.filter(c => 
         c.anulado !== true && c.es_servicio_movil !== true
       ) || [];
@@ -115,7 +83,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         c.anulado !== true && c.es_servicio_movil === true
       ) || [];
 
-      // Obtener detalles de consultas
       const consultasIds = consultas?.map(c => c.id) || [];
       
       if (consultasIds.length === 0) {
@@ -147,7 +114,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       if (errorDetalles) throw errorDetalles;
 
-      // ✅ MODIFICADO: Calcular totales por forma de pago para CONSULTAS REGULARES
+      // Calcular totales regulares
       const cuadrePorForma: { [key: string]: CuadrePorFormaPago } = {};
       const consultasAnuladas = consultas?.filter(c => c.anulado === true) || [];
       
@@ -177,16 +144,12 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         cuadres_forma_pago: Object.values(cuadrePorForma)
       });
 
-      // ✅ NUEVO: Calcular cuadre para SERVICIOS MÓVILES (separado)
+      // Calcular totales móviles
       const cuadreMovilesPorForma: { [key: string]: CuadrePorFormaPago } = {};
       
       consultasMoviles.forEach(consulta => {
         const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
-        
-        // Sumar estudios RX
         const totalRX = detallesConsulta.reduce((sum, d) => sum + d.precio, 0);
-        
-        // Sumar extras
         let totalExtras = 0;
         if (consulta.movil_incluye_placas) totalExtras += consulta.movil_precio_placas || 0;
         if (consulta.movil_incluye_informe) totalExtras += consulta.movil_precio_informe || 0;
@@ -215,7 +178,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         cuadres_forma_pago: Object.values(cuadreMovilesPorForma)
       });
 
-      // Guardar detalles con información de la consulta (SOLO consultas regulares NO anuladas)
       const detallesConInfo = detallesData
         ?.filter(d => {
           const consulta = consultasRegulares.find(c => c.id === d.consulta_id);
@@ -236,7 +198,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       
       setDetalles(detallesConInfo);
 
-      // ✅ NUEVO: Guardar detalles de móviles por separado
       const detallesMovilesConInfo = consultasMoviles.map(consulta => {
         const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
         const totalRX = detallesConsulta.reduce((sum, d) => sum + d.precio, 0);
@@ -261,7 +222,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       setDetallesMoviles(detallesMovilesConInfo);
       
-      // Guardar información de consultas anuladas
       setConsultasAnuladas(consultasAnuladas.map(c => ({
         nombre: c.pacientes?.nombre,
         usuario_anulo: c.usuario_anulo,
@@ -270,7 +230,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         total: detallesData?.filter(d => d.consulta_id === c.id).reduce((sum, d) => sum + d.precio, 0) || 0
       })));
       
-      // Cargar gastos del día
       cargarGastos();
     } catch (error) {
       console.error('Error al cargar cuadre:', error);
@@ -304,7 +263,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     }
 
     try {
-      // Buscar o crear categoría "Gastos Operativos"
       let { data: categoria, error: catError } = await supabase
         .from('categorias_gastos')
         .select('id')
@@ -312,7 +270,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         .single();
 
       if (catError || !categoria) {
-        // Crear la categoría si no existe
         const { data: nuevaCategoria, error: nuevaCatError } = await supabase
           .from('categorias_gastos')
           .insert([{ nombre: 'Gastos Operativos', descripcion: 'Gastos diarios operacionales' }])
@@ -323,7 +280,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         categoria = nuevaCategoria;
       }
 
-      // Insertar gasto
       const { error } = await supabase
         .from('gastos')
         .insert([{
@@ -331,7 +287,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           categoria_id: categoria.id,
           concepto: conceptoGasto,
           monto: parseFloat(montoGasto),
-          forma_pago: 'efectivo' // Por defecto
+          forma_pago: 'efectivo'
         }]);
       
       if (error) throw error;
@@ -373,7 +329,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
     const efectivoContadoNum = parseFloat(efectivoContado);
     const tarjetaContadoNum = parseFloat(tarjetaContado);
-    const depositadoContadoNum = parseFloat(transferenciaContado); // Reutilizamos el campo
+    const depositadoContadoNum = parseFloat(transferenciaContado);
 
     const diferencias = {
       efectivo: calcularDiferencia(efectivoEsperado, efectivoContadoNum),
@@ -389,7 +345,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     const horaActual = format(new Date(), 'HH:mm');
 
     if (formato === 'csv') {
-      // Usar el nuevo generador de Excel profesional
       await generarCuadreExcel({
         fecha: fechaFormateada,
         horaActual,
@@ -399,8 +354,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         efectivoContado: efectivoContadoNum,
         tarjetaEsperada,
         tarjetaContado: tarjetaContadoNum,
-        transferenciaEsperada: depositadoEsperado, // Ahora es depositado
-        transferenciaContado: depositadoContadoNum, // Ahora es depositado
+        transferenciaEsperada: depositadoEsperado,
+        transferenciaContado: depositadoContadoNum,
         diferencias,
         cuadreCorrecto,
         observaciones,
@@ -412,246 +367,9 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       });
 
       alert(cuadreCorrecto ? 
-        `✅ Cuadre correcto! Archivo Excel descargado con formato profesional.` : 
-        `⚠️ Cuadre con diferencias. Archivo Excel descargado para revisión.`
+        `✅ Cuadre correcto! Archivo Excel descargado.` : 
+        `⚠️ Cuadre con diferencias. Archivo Excel descargado.`
       );
-
-    } else if (formato === 'pdf') {
-      // Formato PDF - Generar HTML y abrir para imprimir como PDF
-      const htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Cuadre de Caja - ${fechaFormateada}</title>
-  <style>
-    @page { 
-      size: letter;
-      margin: 2cm;
-    }
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 20px;
-      color: #333;
-    }
-    .header {
-      text-align: center;
-      border-bottom: 3px solid #2563eb;
-      padding-bottom: 20px;
-      margin-bottom: 30px;
-    }
-    .header h1 {
-      color: #2563eb;
-      margin: 0;
-      font-size: 28px;
-    }
-    .header h2 {
-      color: #666;
-      margin: 5px 0;
-      font-size: 18px;
-    }
-    .info-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 10px;
-      padding: 8px;
-      background: #f3f4f6;
-      border-radius: 4px;
-    }
-    .section {
-      margin: 30px 0;
-    }
-    .section-title {
-      background: #2563eb;
-      color: white;
-      padding: 10px;
-      font-size: 16px;
-      font-weight: bold;
-      border-radius: 4px;
-      margin-bottom: 15px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 15px 0;
-    }
-    th {
-      background: #e5e7eb;
-      padding: 12px;
-      text-align: left;
-      font-weight: bold;
-      border: 1px solid #d1d5db;
-    }
-    td {
-      padding: 10px;
-      border: 1px solid #d1d5db;
-    }
-    tr:nth-child(even) {
-      background: #f9fafb;
-    }
-    .resultado {
-      margin: 30px 0;
-      padding: 20px;
-      border-radius: 8px;
-      text-align: center;
-      font-size: 20px;
-      font-weight: bold;
-    }
-    .resultado.correcto {
-      background: #d1fae5;
-      color: #065f46;
-      border: 2px solid #10b981;
-    }
-    .resultado.diferencias {
-      background: #fee2e2;
-      color: #991b1b;
-      border: 2px solid #ef4444;
-    }
-    .observaciones {
-      background: #fef3c7;
-      padding: 15px;
-      border-left: 4px solid #f59e0b;
-      margin: 20px 0;
-    }
-    .footer {
-      margin-top: 40px;
-      padding-top: 20px;
-      border-top: 2px solid #e5e7eb;
-      text-align: center;
-      color: #666;
-      font-size: 12px;
-    }
-    .status-ok { color: #059669; font-weight: bold; }
-    .status-diff { color: #dc2626; font-weight: bold; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>CUADRE DE CAJA DIARIO</h1>
-    <h2>CONRAD - Centro de Diagnóstico</h2>
-  </div>
-
-  <div class="info-row">
-    <strong>Fecha:</strong>
-    <span>${fechaFormateada}</span>
-  </div>
-  <div class="info-row">
-    <strong>Hora de Cuadre:</strong>
-    <span>${horaActual}</span>
-  </div>
-
-  <div class="section">
-    <div class="section-title">RESUMEN DEL DÍA</div>
-    <div class="info-row">
-      <strong>Total Consultas:</strong>
-      <span>${cuadre?.total_consultas || 0}</span>
-    </div>
-    <div class="info-row">
-      <strong>Total Ventas:</strong>
-      <span style="font-size: 18px; font-weight: bold; color: #2563eb;">Q ${(cuadre?.total_ventas || 0).toFixed(2)}</span>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">CUADRE POR FORMA DE PAGO</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Forma de Pago</th>
-          <th style="text-align: right;">Esperado</th>
-          <th style="text-align: right;">Contado</th>
-          <th style="text-align: right;">Diferencia</th>
-          <th style="text-align: center;">Estado</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><strong>💵 Efectivo</strong></td>
-          <td style="text-align: right;">Q ${efectivoEsperado.toFixed(2)}</td>
-          <td style="text-align: right;">Q ${efectivoContadoNum.toFixed(2)}</td>
-          <td style="text-align: right;">Q ${diferencias.efectivo.toFixed(2)}</td>
-          <td style="text-align: center;" class="${Math.abs(diferencias.efectivo) < 0.01 ? 'status-ok' : 'status-diff'}">
-            ${Math.abs(diferencias.efectivo) < 0.01 ? '✅ OK' : '⚠️ DIFERENCIA'}
-          </td>
-        </tr>
-        <tr>
-          <td><strong>💳 Tarjeta</strong></td>
-          <td style="text-align: right;">Q ${tarjetaEsperada.toFixed(2)}</td>
-          <td style="text-align: right;">Q ${tarjetaContadoNum.toFixed(2)}</td>
-          <td style="text-align: right;">Q ${diferencias.tarjeta.toFixed(2)}</td>
-          <td style="text-align: center;" class="${Math.abs(diferencias.tarjeta) < 0.01 ? 'status-ok' : 'status-diff'}">
-            ${Math.abs(diferencias.tarjeta) < 0.01 ? '✅ OK' : '⚠️ DIFERENCIA'}
-          </td>
-        </tr>
-        <tr>
-          <td><strong>💰 Depositado</strong></td>
-          <td style="text-align: right;">Q ${depositadoEsperado.toFixed(2)}</td>
-          <td style="text-align: right;">Q ${depositadoContadoNum.toFixed(2)}</td>
-          <td style="text-align: right;">Q ${diferencias.depositado.toFixed(2)}</td>
-          <td style="text-align: center;" class="${Math.abs(diferencias.depositado) < 0.01 ? 'status-ok' : 'status-diff'}">
-            ${Math.abs(diferencias.depositado) < 0.01 ? '✅ OK' : '⚠️ DIFERENCIA'}
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="resultado ${cuadreCorrecto ? 'correcto' : 'diferencias'}">
-    ${cuadreCorrecto ? '✅ CUADRE CORRECTO' : '⚠️ CUADRE CON DIFERENCIAS'}
-  </div>
-
-  ${observaciones ? `
-  <div class="observaciones">
-    <strong>OBSERVACIONES:</strong><br>
-    ${observaciones}
-  </div>
-  ` : ''}
-
-  <div class="section">
-    <div class="section-title">DETALLE POR FORMA DE PAGO</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Forma de Pago</th>
-          <th style="text-align: center;">Cantidad</th>
-          <th style="text-align: right;">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${cuadre?.cuadres_forma_pago.map(c => `
-        <tr>
-          <td>${getFormaPagoNombre(c.forma_pago)}</td>
-          <td style="text-align: center;">${c.cantidad}</td>
-          <td style="text-align: right;"><strong>Q ${c.total.toFixed(2)}</strong></td>
-        </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="footer">
-    Documento generado automáticamente<br>
-    Sistema CONRAD - ${format(new Date(), 'dd/MM/yyyy HH:mm')}
-  </div>
-
-  <script>
-    window.onload = function() {
-      window.print();
-    };
-  </script>
-</body>
-</html>
-      `;
-
-      // Abrir en nueva ventana para imprimir como PDF
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
-      } else {
-        alert('Por favor permite ventanas emergentes para descargar el PDF');
-      }
     }
   };
 
@@ -670,20 +388,14 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     return contado - esperado;
   };
 
-  // Calcular total de gastos
   const totalGastos = gastos.reduce((sum, g) => sum + parseFloat(g.monto || 0), 0);
-
-  // Efectivo esperado MENOS gastos del día (solo efectivo, sin facturado)
   const efectivoEsperado = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo')?.total || 0) - totalGastos;
-  
-  // Depositado incluye efectivo_facturado Y transferencia
   const depositadoEsperado = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo_facturado')?.total || 0) +
                               (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'transferencia')?.total || 0);
-  
   const tarjetaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'tarjeta')?.total || 0;
 
   const efectivoContadoNum = parseFloat(efectivoContado) || 0;
-  const depositadoContadoNum = parseFloat(transferenciaContado) || 0; // Reutilizamos este campo para depositado
+  const depositadoContadoNum = parseFloat(transferenciaContado) || 0;
   const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
 
   const diferenciaEfectivo = calcularDiferencia(efectivoEsperado, efectivoContadoNum);
@@ -700,20 +412,18 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         <div className="container mx-auto px-4 py-6">
           <button onClick={onBack} className="flex items-center gap-2 text-white hover:text-green-100 mb-4 transition-colors">
             <ArrowLeft size={20} />
-            Volver al Dashboard
+            Volver
           </button>
           <h1 className="text-3xl font-bold">Cuadre Diario</h1>
-          <p className="text-green-100 mt-2">Control de caja y ventas del día</p>
         </div>
       </header>
 
-      <div className="container mx-auto p-4">
-        {/* Selector de fecha */}
-        <div className="card mb-6">
-          <div className="flex items-center gap-4">
-            <Calendar className="text-blue-600" size={24} />
-            <div>
-              <label className="label">Fecha</label>
+      <div className="container mx-auto p-4 max-w-7xl">
+        {/* ✅ MEJORADO: Selector de fecha más compacto */}
+        <div className="card mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Calendar className="text-blue-600" size={20} />
               <input
                 type="date"
                 className="input-field"
@@ -721,15 +431,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                 onChange={(e) => setFecha(e.target.value)}
               />
             </div>
-            <div className="ml-auto">
-              <button
-                onClick={() => setMostrarCuadre(!mostrarCuadre)}
-                className="btn-primary flex items-center gap-2"
-              >
-                <DollarSign size={20} />
-                {mostrarCuadre ? 'Ocultar' : 'Cuadrar'} Caja
-              </button>
-            </div>
+            <button
+              onClick={() => setMostrarCuadre(!mostrarCuadre)}
+              className="btn-primary flex items-center gap-2"
+            >
+              <DollarSign size={20} />
+              {mostrarCuadre ? 'Ocultar' : 'Cuadrar'} Caja
+            </button>
           </div>
         </div>
 
@@ -739,211 +447,152 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           </div>
         ) : (
           <>
-            {/* Resumen de ventas */}
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
-              <div className="card bg-blue-50">
-                <h3 className="text-lg font-semibold mb-4">Resumen del Día</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between text-lg">
-                    <span>Total Consultas:</span>
-                    <span className="font-bold">{cuadre?.total_consultas || 0}</span>
-                  </div>
-                  <div className="flex justify-between text-2xl border-t pt-3">
-                    <span className="font-semibold">Total Ventas:</span>
-                    <span className="font-bold text-blue-700">
-                      Q {cuadre?.total_ventas.toFixed(2) || '0.00'}
-                    </span>
-                  </div>
-                </div>
+            {/* ✅ MEJORADO: Resumen compacto en una sola fila */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+                <div className="text-sm text-gray-600">Total Consultas</div>
+                <div className="text-2xl font-bold text-blue-700">{cuadre?.total_consultas || 0}</div>
               </div>
+              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
+                <div className="text-sm text-gray-600">Total Ventas</div>
+                <div className="text-2xl font-bold text-green-700">Q {cuadre?.total_ventas.toFixed(2) || '0.00'}</div>
+              </div>
+              {cuadreMoviles && cuadreMoviles.total_consultas > 0 && (
+                <>
+                  <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
+                    <div className="text-sm text-gray-600">📱 Móviles</div>
+                    <div className="text-2xl font-bold text-orange-700">{cuadreMoviles.total_consultas}</div>
+                  </div>
+                  <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
+                    <div className="text-sm text-gray-600">Ventas Móviles</div>
+                    <div className="text-2xl font-bold text-orange-700">Q {cuadreMoviles.total_ventas.toFixed(2)}</div>
+                  </div>
+                </>
+              )}
+            </div>
 
-              {/* Cuadre por forma de pago */}
-              <div className="card">
-                <h3 className="text-lg font-semibold mb-4">Por Forma de Pago</h3>
-                <div className="space-y-2">
-                  {cuadre?.cuadres_forma_pago.length === 0 ? (
-                    <p className="text-gray-500 text-center py-4">No hay consultas</p>
-                  ) : (
-                    cuadre?.cuadres_forma_pago.map(c => (
-                      <div key={c.forma_pago} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                        <div>
-                          <div className="font-medium">{getFormaPagoNombre(c.forma_pago)}</div>
-                          <div className="text-sm text-gray-600">{c.cantidad} consulta(s)</div>
-                        </div>
-                        <div className="text-lg font-bold text-blue-600">
-                          Q {c.total.toFixed(2)}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+            {/* ✅ MEJORADO: Formas de pago compactas */}
+            <div className="card mb-4">
+              <h3 className="text-lg font-semibold mb-3">Por Forma de Pago</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                {cuadre?.cuadres_forma_pago.map(c => (
+                  <div key={c.forma_pago} className="bg-gray-50 rounded p-3">
+                    <div className="text-xs text-gray-600 mb-1">{getFormaPagoNombre(c.forma_pago)}</div>
+                    <div className="text-lg font-bold text-blue-600">Q {c.total.toFixed(2)}</div>
+                    <div className="text-xs text-gray-500">{c.cantidad} consulta(s)</div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {/* ✅ NUEVO: Cuadre Servicios Móviles */}
+            {/* ✅ NUEVO: Sección colapsable de móviles */}
             {cuadreMoviles && cuadreMoviles.total_consultas > 0 && (
-              <div className="card bg-orange-50 border-2 border-orange-300 mb-6">
-                <h3 className="text-lg font-semibold mb-4 text-orange-800">
-                  📱 Servicios Móviles (Separado)
-                </h3>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="bg-white p-4 rounded">
-                    <div className="flex justify-between text-lg">
-                      <span>Total Consultas Móviles:</span>
-                      <span className="font-bold text-orange-600">{cuadreMoviles.total_consultas}</span>
-                    </div>
-                    <div className="flex justify-between text-2xl border-t pt-3 mt-2">
-                      <span className="font-semibold">Total Ventas Móviles:</span>
-                      <span className="font-bold text-orange-700">
-                        Q {cuadreMoviles.total_ventas.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-4 rounded">
-                    <h4 className="font-semibold mb-2">Por Forma de Pago:</h4>
-                    <div className="space-y-2">
-                      {cuadreMoviles.cuadres_forma_pago.map(c => (
-                        <div key={c.forma_pago} className="flex justify-between p-2 bg-orange-50 rounded">
-                          <div>
-                            <div className="font-medium">{getFormaPagoNombre(c.forma_pago)}</div>
-                            <div className="text-sm text-gray-600">{c.cantidad} consulta(s)</div>
-                          </div>
-                          <div className="text-lg font-bold text-orange-600">
-                            Q {c.total.toFixed(2)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 text-sm text-orange-700 bg-orange-100 p-3 rounded">
-                  ℹ️ Los servicios móviles se muestran separados pero SÍ son parte de los ingresos totales del día
-                </div>
-
-                {/* Detalle de servicios móviles */}
-                {detallesMoviles.length > 0 && (
-                  <div className="mt-4 bg-white p-4 rounded">
-                    <h4 className="font-semibold mb-3">Detalle de Servicios Móviles:</h4>
-                    <div className="space-y-3">
-                      {detallesMoviles.map((detalle, idx) => (
-                        <div key={idx} className="border-l-4 border-orange-400 pl-3 py-2 bg-orange-50">
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <div className="font-semibold">{detalle.paciente}</div>
-                              <div className="text-sm text-gray-600">🏥 {detalle.establecimiento}</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-lg font-bold text-orange-700">Q {detalle.total.toFixed(2)}</div>
-                              <div className="text-xs text-gray-600">{getFormaPagoNombre(detalle.forma_pago)}</div>
-                            </div>
-                          </div>
-                          <div className="text-sm space-y-1">
-                            {detalle.estudios.map((est: any, i: number) => (
-                              <div key={i} className="text-gray-700">
-                                • {est.sub_estudios?.nombre} - Q {est.precio.toFixed(2)}
-                              </div>
-                            ))}
-                            {detalle.incluye_placas && (
-                              <div className="text-orange-700 font-semibold">
-                                + Placas - Q {detalle.precio_placas?.toFixed(2)}
-                              </div>
-                            )}
-                            {detalle.incluye_informe && (
-                              <div className="text-orange-700 font-semibold">
-                                + Informe - Q {detalle.precio_informe?.toFixed(2)}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+              <div className="card mb-4 bg-orange-50 border border-orange-200">
+                <button
+                  onClick={() => setMostrarDetallesMoviles(!mostrarDetallesMoviles)}
+                  className="w-full flex items-center justify-between"
+                >
+                  <h3 className="text-lg font-semibold text-orange-800">
+                    📱 Servicios Móviles - Desglose por Forma de Pago
+                  </h3>
+                  {mostrarDetallesMoviles ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                </button>
+                
+                {mostrarDetallesMoviles && (
+                  <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {cuadreMoviles.cuadres_forma_pago.map(c => (
+                      <div key={c.forma_pago} className="bg-white rounded p-3">
+                        <div className="text-xs text-gray-600 mb-1">{getFormaPagoNombre(c.forma_pago)}</div>
+                        <div className="text-lg font-bold text-orange-600">Q {c.total.toFixed(2)}</div>
+                        <div className="text-xs text-gray-500">{c.cantidad} consulta(s)</div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             )}
 
-            {/* Gastos del Día */}
-            <div className="card mb-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold">Gastos del Día</h3>
-                <button
-                  onClick={() => setShowModalGasto(true)}
-                  className="btn-primary flex items-center gap-2"
-                >
-                  <Plus size={18} />
-                  Agregar Gasto
-                </button>
-              </div>
-
-              {gastos.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">No hay gastos registrados</p>
-              ) : (
-                <div className="space-y-2">
-                  {gastos.map(gasto => (
-                    <div key={gasto.id} className="flex justify-between items-center p-3 bg-red-50 border border-red-200 rounded">
-                      <div>
-                        <div className="font-medium">{gasto.concepto}</div>
-                        <div className="text-sm text-gray-600">
-                          {gasto.categorias_gastos?.nombre && (
-                            <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs mr-2">
-                              {gasto.categorias_gastos.nombre}
-                            </span>
-                          )}
-                          {(() => {
-                            const fecha = new Date(gasto.created_at);
-                            // Convertir a hora Guatemala (UTC-6)
-                            const horaGT = new Date(fecha.getTime() - (6 * 60 * 60 * 1000));
-                            return horaGT.toLocaleTimeString('es-GT', { 
-                              hour: '2-digit', 
-                              minute: '2-digit',
-                              hour12: true
-                            });
-                          })()}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-lg font-bold text-red-600">
-                          - Q {gasto.monto.toFixed(2)}
-                        </div>
-                        <button
-                          onClick={() => eliminarGasto(gasto.id)}
-                          className="text-red-600 hover:text-red-800"
-                          title="Eliminar"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="flex justify-between items-center p-3 bg-red-100 border-2 border-red-400 rounded font-bold">
-                    <span>Total Gastos:</span>
-                    <span className="text-red-700">
-                      - Q {gastos.reduce((sum, g) => sum + g.monto, 0).toFixed(2)}
-                    </span>
-                  </div>
+            {/* ✅ MEJORADO: Gastos colapsables */}
+            <div className="card mb-4">
+              <button
+                onClick={() => setMostrarGastos(!mostrarGastos)}
+                className="w-full flex items-center justify-between mb-3"
+              >
+                <h3 className="text-lg font-semibold">
+                  Gastos del Día {gastos.length > 0 && `(${gastos.length})`}
+                </h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowModalGasto(true);
+                    }}
+                    className="btn-primary flex items-center gap-2 text-sm"
+                  >
+                    <Plus size={16} />
+                    Agregar
+                  </button>
+                  {mostrarGastos ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                 </div>
+              </button>
+
+              {mostrarGastos && (
+                gastos.length === 0 ? (
+                  <p className="text-gray-500 text-center py-4">No hay gastos registrados</p>
+                ) : (
+                  <div className="space-y-2">
+                    {gastos.map(gasto => (
+                      <div key={gasto.id} className="flex justify-between items-center p-3 bg-red-50 border border-red-200 rounded">
+                        <div className="flex-1">
+                          <div className="font-medium">{gasto.concepto}</div>
+                          <div className="text-xs text-gray-600">
+                            {(() => {
+                              const fecha = new Date(gasto.created_at);
+                              const horaGT = new Date(fecha.getTime() - (6 * 60 * 60 * 1000));
+                              return horaGT.toLocaleTimeString('es-GT', { 
+                                hour: '2-digit', 
+                                minute: '2-digit',
+                                hour12: true
+                              });
+                            })()}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-lg font-bold text-red-600">
+                            - Q {gasto.monto.toFixed(2)}
+                          </div>
+                          <button
+                            onClick={() => eliminarGasto(gasto.id)}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {gastos.length > 0 && (
+                      <div className="flex justify-between items-center p-3 bg-red-100 border-2 border-red-400 rounded font-bold">
+                        <span>Total Gastos:</span>
+                        <span className="text-red-700">- Q {totalGastos.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                )
               )}
             </div>
 
-            {/* Cuadre de caja */}
+            {/* ✅ Cuadre de caja */}
             {mostrarCuadre && cuadre && cuadre.total_consultas > 0 && (
-              <div className="card mb-6 bg-yellow-50">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <DollarSign className="text-yellow-600" size={28} />
-                    <h3 className="text-xl font-bold">Cuadre de Caja</h3>
-                  </div>
+              <div className="card mb-4 bg-yellow-50 border-2 border-yellow-300">
+                <div className="flex items-center gap-3 mb-4">
+                  <DollarSign className="text-yellow-600" size={24} />
+                  <h3 className="text-xl font-bold">Cuadre de Caja</h3>
                 </div>
 
                 <div className="grid md:grid-cols-3 gap-4 mb-4">
-                  {/* Efectivo */}
                   <div className="bg-white p-4 rounded-lg">
-                    <label className="label">💵 Efectivo Contado</label>
-                    <div className="text-sm text-gray-600 mb-2">
-                      Esperado: Q {efectivoEsperado.toFixed(2)}
-                    </div>
+                    <label className="label">💵 Efectivo</label>
+                    <div className="text-sm text-gray-600 mb-2">Esperado: Q {efectivoEsperado.toFixed(2)}</div>
                     <input
                       type="number"
                       step="0.01"
@@ -956,17 +605,14 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                       <div className={`mt-2 text-sm font-semibold ${
                         Math.abs(diferenciaEfectivo) < 0.01 ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        Diferencia: Q {diferenciaEfectivo.toFixed(2)}
+                        {Math.abs(diferenciaEfectivo) < 0.01 ? '✓' : '✗'} Dif: Q {diferenciaEfectivo.toFixed(2)}
                       </div>
                     )}
                   </div>
 
-                  {/* Tarjeta */}
                   <div className="bg-white p-4 rounded-lg">
-                    <label className="label">💳 Tarjeta Contado</label>
-                    <div className="text-sm text-gray-600 mb-2">
-                      Esperado: Q {tarjetaEsperada.toFixed(2)}
-                    </div>
+                    <label className="label">💳 Tarjeta</label>
+                    <div className="text-sm text-gray-600 mb-2">Esperado: Q {tarjetaEsperada.toFixed(2)}</div>
                     <input
                       type="number"
                       step="0.01"
@@ -979,17 +625,14 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                       <div className={`mt-2 text-sm font-semibold ${
                         Math.abs(diferenciaTarjeta) < 0.01 ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        Diferencia: Q {diferenciaTarjeta.toFixed(2)}
+                        {Math.abs(diferenciaTarjeta) < 0.01 ? '✓' : '✗'} Dif: Q {diferenciaTarjeta.toFixed(2)}
                       </div>
                     )}
                   </div>
 
-                  {/* Depositado (incluye efectivo_facturado + transferencia) */}
                   <div className="bg-white p-4 rounded-lg">
-                    <label className="label">💰 Depositado Contado</label>
-                    <div className="text-sm text-gray-600 mb-2">
-                      Esperado: Q {depositadoEsperado.toFixed(2)}
-                    </div>
+                    <label className="label">💰 Depositado</label>
+                    <div className="text-sm text-gray-600 mb-2">Esperado: Q {depositadoEsperado.toFixed(2)}</div>
                     <input
                       type="number"
                       step="0.01"
@@ -1002,218 +645,81 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                       <div className={`mt-2 text-sm font-semibold ${
                         Math.abs(diferenciaDepositado) < 0.01 ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        Diferencia: Q {diferenciaDepositado.toFixed(2)}
+                        {Math.abs(diferenciaDepositado) < 0.01 ? '✓' : '✗'} Dif: Q {diferenciaDepositado.toFixed(2)}
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Observaciones */}
                 <div className="mb-4">
-                  <label className="label">Observaciones (opcional)</label>
+                  <label className="label">Observaciones</label>
                   <textarea
                     className="input-field"
                     value={observaciones}
                     onChange={(e) => setObservaciones(e.target.value)}
-                    placeholder="Notas sobre el cuadre, explicación de diferencias, etc."
-                    rows={3}
+                    placeholder="Notas sobre el cuadre..."
+                    rows={2}
                   />
                 </div>
 
-                {/* Resultado del cuadre */}
                 {efectivoContado !== '' && tarjetaContado !== '' && transferenciaContado !== '' && (
                   <>
-                    <div className={`p-4 rounded-lg text-center mb-4 ${
-                      cuadreCorrecto ? 'bg-green-100 border-2 border-green-500' : 'bg-red-100 border-2 border-red-500'
+                    <div className={`p-3 rounded-lg text-center mb-4 ${
+                      cuadreCorrecto ? 'bg-green-100 border border-green-500' : 'bg-red-100 border border-red-500'
                     }`}>
                       {cuadreCorrecto ? (
-                        <div className="flex items-center justify-center gap-3 text-green-700">
-                          <CheckCircle2 size={32} />
-                          <span className="text-xl font-bold">¡Cuadre Correcto!</span>
+                        <div className="flex items-center justify-center gap-2 text-green-700 font-bold">
+                          <CheckCircle2 size={24} />
+                          <span>¡Cuadre Correcto!</span>
                         </div>
                       ) : (
-                        <div className="text-red-700">
-                          <span className="text-xl font-bold">⚠️ Cuadre con Diferencias</span>
-                          <p className="text-sm mt-2">Revise los montos contados vs esperados</p>
-                        </div>
+                        <div className="text-red-700 font-bold">⚠️ Cuadre con Diferencias</div>
                       )}
                     </div>
 
-                    {/* Botones de descarga */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <button
-                        onClick={() => descargarCuadre('csv')}
-                        className="btn-primary flex items-center justify-center gap-2 py-3 text-lg"
-                      >
-                        <Save size={24} />
-                        📊 Descargar Excel
-                      </button>
-                      <button
-                        onClick={() => descargarCuadre('pdf')}
-                        className="btn-secondary flex items-center justify-center gap-2 py-3 text-lg"
-                      >
-                        <Save size={24} />
-                        📄 Descargar PDF
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => descargarCuadre('csv')}
+                      className="btn-primary w-full flex items-center justify-center gap-2"
+                    >
+                      <Save size={20} />
+                      📊 Descargar Excel
+                    </button>
                   </>
                 )}
               </div>
             )}
 
-            {/* Detalles de consultas */}
-            {detalles.length > 0 && (
-              <div className="card">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold">Detalle de Consultas</h3>
-                  <button
-                    onClick={() => setAgruparPorPaciente(!agruparPorPaciente)}
-                    className="btn-secondary text-sm"
-                  >
-                    {agruparPorPaciente ? '📋 Ver Todos' : '👥 Agrupar por Paciente'}
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  {!agruparPorPaciente ? (
-                    // Vista normal - todos los estudios
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-2 text-left">Paciente</th>
-                          <th className="px-4 py-2 text-left">Estudio</th>
-                          <th className="px-4 py-2 text-left">Tipo</th>
-                          <th className="px-4 py-2 text-left">Forma Pago</th>
-                          <th className="px-4 py-2 text-right">Precio</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detalles.map((detalle, index) => (
-                          <tr key={index} className="border-t hover:bg-gray-50">
-                            <td className="px-4 py-2">{detalle.paciente}</td>
-                            <td className="px-4 py-2">{detalle.sub_estudios?.nombre}</td>
-                            <td className="px-4 py-2">
-                              <span className={`text-xs px-2 py-1 rounded ${
-                                detalle.tipo_cobro === 'normal' ? 'bg-blue-100' :
-                                detalle.tipo_cobro === 'social' ? 'bg-green-100' : 'bg-orange-100'
-                              }`}>
-                                {detalle.tipo_cobro}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2">
-                              <div>
-                                {getFormaPagoNombre(detalle.forma_pago)}
-                                {detalle.forma_pago === 'tarjeta' && !detalle.numero_voucher && (
-                                  <div className="text-xs text-yellow-600 font-semibold">
-                                    ⚠️ Voucher Pendiente
-                                  </div>
-                                )}
-                                {detalle.numero_transferencia && (
-                                  <div className="text-xs text-gray-600">Trans: {detalle.numero_transferencia}</div>
-                                )}
-                                {detalle.numero_voucher && (
-                                  <div className="text-xs text-gray-600">Voucher: {detalle.numero_voucher}</div>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-2 text-right font-semibold">
-                              Q {detalle.precio.toFixed(2)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    // Vista agrupada por paciente
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-2 text-left">Paciente</th>
-                          <th className="px-4 py-2 text-center"># Estudios</th>
-                          <th className="px-4 py-2 text-left">Forma(s) Pago</th>
-                          <th className="px-4 py-2 text-right">Total</th>
-                          <th className="px-4 py-2 text-center"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {agruparEstudiosPorPaciente().map((grupo, index) => (
-                          <React.Fragment key={index}>
-                            {/* Fila del paciente */}
-                            <tr className="border-t bg-blue-50 hover:bg-blue-100 cursor-pointer"
-                                onClick={() => togglePaciente(grupo.paciente)}>
-                              <td className="px-4 py-2 font-semibold">{grupo.paciente}</td>
-                              <td className="px-4 py-2 text-center">
-                                <span className="bg-blue-600 text-white px-2 py-1 rounded-full text-xs">
-                                  {grupo.estudios.length}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2">
-                                <div className="flex gap-1 flex-wrap">
-                                  {Array.from(grupo.formasPago).map((fp: any) => (
-                                    <span key={fp} className="text-xs bg-gray-200 px-2 py-1 rounded">
-                                      {getFormaPagoNombre(fp)}
-                                    </span>
-                                  ))}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2 text-right font-bold text-blue-700">
-                                Q {grupo.total.toFixed(2)}
-                              </td>
-                              <td className="px-4 py-2 text-center">
-                                {pacientesExpandidos.has(grupo.paciente) ? '▼' : '▶'}
-                              </td>
-                            </tr>
-                            {/* Filas de estudios expandidas */}
-                            {pacientesExpandidos.has(grupo.paciente) && grupo.estudios.map((detalle: any, idx: number) => (
-                              <tr key={`${index}-${idx}`} className="border-t bg-gray-50">
-                                <td className="px-4 py-2 pl-8 text-sm text-gray-600">↳ {detalle.sub_estudios?.nombre}</td>
-                                <td className="px-4 py-2 text-center">
-                                  <span className={`text-xs px-2 py-1 rounded ${
-                                    detalle.tipo_cobro === 'normal' ? 'bg-blue-100' :
-                                    detalle.tipo_cobro === 'social' ? 'bg-green-100' : 'bg-orange-100'
-                                  }`}>
-                                    {detalle.tipo_cobro}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-2 text-sm">{getFormaPagoNombre(detalle.forma_pago)}</td>
-                                <td className="px-4 py-2 text-right text-sm">Q {detalle.precio.toFixed(2)}</td>
-                                <td></td>
-                              </tr>
-                            ))}
-                          </React.Fragment>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Sección de Consultas Anuladas */}
+            {/* ✅ NUEVO: Consultas anuladas colapsables */}
             {consultasAnuladas.length > 0 && (
-              <div className="card border-4 border-red-500">
-                <h3 className="text-lg font-semibold mb-4 text-red-700">🚫 Consultas Anuladas (No cuentan en el cuadre)</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-red-100">
-                      <tr>
-                        <th className="px-4 py-2 text-left">Paciente</th>
-                        <th className="px-4 py-2 text-left">Total Anulado</th>
-                        <th className="px-4 py-2 text-left">Anulado Por</th>
-                        <th className="px-4 py-2 text-left">Motivo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {consultasAnuladas.map((anulada, index) => (
-                        <tr key={index} className="border-t bg-red-50">
-                          <td className="px-4 py-2 font-semibold">{anulada.nombre}</td>
-                          <td className="px-4 py-2">Q {anulada.total.toFixed(2)}</td>
-                          <td className="px-4 py-2 text-sm">{anulada.usuario_anulo}</td>
-                          <td className="px-4 py-2 text-sm text-gray-700">{anulada.motivo_anulacion}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="card border-2 border-red-500">
+                <button
+                  onClick={() => setMostrarAnuladas(!mostrarAnuladas)}
+                  className="w-full flex items-center justify-between"
+                >
+                  <h3 className="text-lg font-semibold text-red-700">
+                    🚫 Consultas Anuladas ({consultasAnuladas.length})
+                  </h3>
+                  {mostrarAnuladas ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                </button>
+                
+                {mostrarAnuladas && (
+                  <div className="mt-4 space-y-2">
+                    {consultasAnuladas.map((anulada, index) => (
+                      <div key={index} className="bg-red-50 p-3 rounded border border-red-200">
+                        <div className="flex justify-between">
+                          <div>
+                            <div className="font-semibold">{anulada.nombre}</div>
+                            <div className="text-sm text-gray-600">{anulada.motivo_anulacion}</div>
+                            <div className="text-xs text-gray-500">Por: {anulada.usuario_anulo}</div>
+                          </div>
+                          <div className="text-lg font-bold text-red-600">
+                            Q {anulada.total.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -1225,7 +731,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Agregar Gasto del Día</h2>
+              <h2 className="text-xl font-bold">Agregar Gasto</h2>
               <button
                 onClick={() => {
                   setShowModalGasto(false);
@@ -1244,7 +750,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                 <input
                   type="text"
                   className="input-field"
-                  placeholder="Ej: Diesel para transporte"
+                  placeholder="Ej: Diesel"
                   value={conceptoGasto}
                   onChange={(e) => setConceptoGasto(e.target.value)}
                 />
@@ -1275,7 +781,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                 Cancelar
               </button>
               <button onClick={agregarGasto} className="btn-primary">
-                Agregar Gasto
+                Guardar
               </button>
             </div>
           </div>

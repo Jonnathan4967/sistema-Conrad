@@ -24,13 +24,11 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
   const [fechaFin, setFechaFin] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [loading, setLoading] = useState(false);
   
-  // Estadísticas generales
   const [totalConsultas, setTotalConsultas] = useState(0);
   const [totalPacientes, setTotalPacientes] = useState(0);
   const [totalIngresos, setTotalIngresos] = useState(0);
   const [promedioConsulta, setPromedioConsulta] = useState(0);
   
-  // Datos para gráficas
   const [datosPorDia, setDatosPorDia] = useState<EstadisticasDia[]>([]);
   const [datosPorMes, setDatosPorMes] = useState<EstadisticasMes[]>([]);
   const [topEstudios, setTopEstudios] = useState<any[]>([]);
@@ -41,10 +39,18 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
     cargarEstadisticas();
   }, []);
 
+  // ✅ FUNCIÓN CORREGIDA: Formatear fecha correctamente para Guatemala
+  const formatearFechaGuatemala = (fechaString: string): string => {
+    // La fecha viene en formato YYYY-MM-DD desde la base de datos
+    // No aplicar conversión de zona horaria, solo formatear
+    const [anio, mes, dia] = fechaString.split('-');
+    const nombresMeses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    return `${dia}-${nombresMeses[parseInt(mes) - 1]}`;
+  };
+
   const cargarEstadisticas = async () => {
     setLoading(true);
     try {
-      // Obtener consultas del período (excluyendo anuladas)
       const { data: consultasRaw, error } = await supabase
         .from('consultas')
         .select(`
@@ -65,10 +71,20 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
 
       if (error) throw error;
 
-      // ✅ Filtrar consultas anuladas y servicios móviles
+      // Filtrar consultas anuladas y servicios móviles
       const consultas = consultasRaw?.filter(c => c.anulado !== true && c.es_servicio_movil !== true) || [];
 
       if (!consultas || consultas.length === 0) {
+        // Limpiar estados si no hay datos
+        setTotalConsultas(0);
+        setTotalPacientes(0);
+        setTotalIngresos(0);
+        setPromedioConsulta(0);
+        setDatosPorDia([]);
+        setDatosPorMes([]);
+        setTopEstudios([]);
+        setPorTipoCobro({});
+        setPorFormaPago({});
         setLoading(false);
         return;
       }
@@ -85,10 +101,10 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
       setTotalIngresos(ingresos);
       setPromedioConsulta(total > 0 ? ingresos / total : 0);
 
-      // Agrupar por día
+      // ✅ CORREGIDO: Agrupar por día usando la fecha directa del campo
       const porDia: { [key: string]: { cantidad: number; ingresos: number } } = {};
       consultas.forEach(c => {
-        const fecha = c.fecha;
+        const fecha = c.fecha; // Ya viene en formato YYYY-MM-DD correcto
         if (!porDia[fecha]) {
           porDia[fecha] = { cantidad: 0, ingresos: 0 };
         }
@@ -98,19 +114,21 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
 
       const datosDia = Object.entries(porDia)
         .map(([fecha, datos]) => ({
-          fecha: new Date(fecha).toLocaleDateString('es-GT', { day: '2-digit', month: 'short' }),
+          fecha: formatearFechaGuatemala(fecha), // ✅ Usar función corregida
           cantidad: datos.cantidad,
-          ingresos: datos.ingresos
+          ingresos: datos.ingresos,
+          fechaOriginal: fecha // ✅ Guardar para ordenar correctamente
         }))
-        .sort((a, b) => a.fecha.localeCompare(b.fecha));
+        .sort((a: any, b: any) => a.fechaOriginal.localeCompare(b.fechaOriginal));
 
       setDatosPorDia(datosDia);
 
-      // Agrupar por mes (últimos 6 meses)
+      // ✅ CORREGIDO: Agrupar por mes
       const porMes: { [key: string]: { cantidad: number; ingresos: number } } = {};
       consultas.forEach(c => {
-        const fecha = new Date(c.fecha);
-        const mesKey = `${fecha.getFullYear()}-${(fecha.getMonth() + 1).toString().padStart(2, '0')}`;
+        // Usar la fecha directa sin conversión
+        const [anio, mes] = c.fecha.split('-');
+        const mesKey = `${anio}-${mes}`;
         if (!porMes[mesKey]) {
           porMes[mesKey] = { cantidad: 0, ingresos: 0 };
         }
@@ -125,9 +143,11 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
           return {
             mes: `${nombresMeses[parseInt(mes) - 1]} ${anio}`,
             cantidad: datos.cantidad,
-            ingresos: datos.ingresos
+            ingresos: datos.ingresos,
+            mesKey // Para ordenar
           };
         })
+        .sort((a: any, b: any) => a.mesKey.localeCompare(b.mesKey))
         .slice(-6); // Últimos 6 meses
 
       setDatosPorMes(datosMes);
@@ -150,20 +170,23 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
 
       // Por tipo de cobro
       const tipoCobro = consultas.reduce((acc: any, c) => {
-        acc[c.tipo_cobro] = (acc[c.tipo_cobro] || 0) + 1;
+        const tipo = c.tipo_cobro || 'sin_especificar';
+        acc[tipo] = (acc[tipo] || 0) + 1;
         return acc;
       }, {});
       setPorTipoCobro(tipoCobro);
 
       // Por forma de pago
       const formaPago = consultas.reduce((acc: any, c) => {
-        acc[c.forma_pago] = (acc[c.forma_pago] || 0) + 1;
+        const forma = c.forma_pago || 'sin_especificar';
+        acc[forma] = (acc[forma] || 0) + 1;
         return acc;
       }, {});
       setPorFormaPago(formaPago);
 
     } catch (error) {
       console.error('Error al cargar estadísticas:', error);
+      alert('Error al cargar estadísticas');
     } finally {
       setLoading(false);
     }
@@ -181,6 +204,31 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
     a.href = url;
     a.download = `estadisticas_${fechaInicio}_${fechaFin}.csv`;
     a.click();
+  };
+
+  // ✅ NUEVO: Función para formatear nombres de tipo de cobro
+  const formatearTipoCobro = (tipo: string): string => {
+    const nombres: { [key: string]: string } = {
+      'normal': 'Normal',
+      'social': 'Social',
+      'especial': 'Especial',
+      'personalizado': 'Personalizado',
+      'sin_especificar': 'Sin Especificar'
+    };
+    return nombres[tipo] || tipo;
+  };
+
+  // ✅ NUEVO: Función para formatear nombres de forma de pago
+  const formatearFormaPago = (forma: string): string => {
+    const nombres: { [key: string]: string } = {
+      'efectivo': 'Efectivo',
+      'tarjeta': 'Tarjeta',
+      'transferencia': 'Transferencia',
+      'efectivo_facturado': 'Efectivo Facturado',
+      'estado_cuenta': 'Estado de Cuenta',
+      'sin_especificar': 'Sin Especificar'
+    };
+    return nombres[forma] || forma;
   };
 
   return (
@@ -220,10 +268,18 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
               />
             </div>
             <div className="flex gap-2 pt-6">
-              <button onClick={cargarEstadisticas} className="btn-primary">
-                Generar Reporte
+              <button 
+                onClick={cargarEstadisticas} 
+                className="btn-primary"
+                disabled={loading}
+              >
+                {loading ? 'Cargando...' : 'Generar Reporte'}
               </button>
-              <button onClick={exportarCSV} className="btn-secondary flex items-center gap-2">
+              <button 
+                onClick={exportarCSV} 
+                className="btn-secondary flex items-center gap-2"
+                disabled={datosPorDia.length === 0}
+              >
                 <Download size={18} />
                 Exportar CSV
               </button>
@@ -271,7 +327,7 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
           {/* Gráfica por día */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-bold mb-4">📊 Consultas por Día</h2>
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-96 overflow-y-auto">
               {datosPorDia.map((dato, idx) => (
                 <div key={idx} className="flex items-center gap-3">
                   <span className="text-sm font-medium w-20">{dato.fecha}</span>
@@ -322,7 +378,7 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
           {/* Top 10 Estudios */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-bold mb-4">🏆 Top 10 Estudios Más Realizados</h2>
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-96 overflow-y-auto">
               {topEstudios.map((estudio, idx) => (
                 <div key={idx} className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${
@@ -348,7 +404,7 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
             <div className="space-y-3">
               {Object.entries(porTipoCobro).map(([tipo, cantidad]: [string, any]) => (
                 <div key={tipo} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                  <span className="font-medium capitalize">{tipo}</span>
+                  <span className="font-medium">{formatearTipoCobro(tipo)}</span>
                   <span className="text-blue-600 font-bold">{cantidad}</span>
                 </div>
               ))}
@@ -364,7 +420,7 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
             <div className="space-y-3">
               {Object.entries(porFormaPago).map(([forma, cantidad]: [string, any]) => (
                 <div key={forma} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                  <span className="font-medium capitalize">{forma.replace('_', ' ')}</span>
+                  <span className="font-medium">{formatearFormaPago(forma)}</span>
                   <span className="text-green-600 font-bold">{cantidad}</span>
                 </div>
               ))}
