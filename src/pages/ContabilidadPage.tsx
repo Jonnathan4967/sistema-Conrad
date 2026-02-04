@@ -42,6 +42,7 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
   });
 
   const [vistaActual, setVistaActual] = useState<Vista>('dashboard');
+  const [desgloseExpandido, setDesgloseExpandido] = useState(false);
 
   const meses = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -322,47 +323,82 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
           </div>
         </div>
 
-        {/* ✅ NUEVA SECCIÓN: Desglose de Ingresos */}
+        {/* ✅ DESGLOSE DE INGRESOS - VERSIÓN COLAPSABLE */}
         {totales.ingresosMoviles > 0 && (
-          <div className="bg-orange-50 border-2 border-orange-300 rounded-lg p-6 mb-8">
-            <h3 className="text-lg font-bold text-orange-800 mb-4">
-              📱 Desglose de Ingresos - Servicios Móviles
-            </h3>
-            <div className="grid md:grid-cols-3 gap-4">
-              <div className="bg-white p-4 rounded-lg">
-                <p className="text-sm text-gray-600">Consultas Regulares</p>
-                <p className="text-2xl font-bold text-green-600">
-                  Q {totales.ingresosConsultas.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {totales.ingresos > 0 ? ((totales.ingresosConsultas / totales.ingresos) * 100).toFixed(1) : 0}% del total
-                </p>
+          <div className="mb-8">
+            {/* Botón principal colapsable */}
+            <button
+              onClick={() => setDesgloseExpandido(!desgloseExpandido)}
+              className="w-full bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:-translate-y-1 text-left"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="text-orange-600 text-3xl">📱</div>
+                  <div>
+                    <h3 className="font-bold text-lg mb-1">Desglose de Ingresos</h3>
+                    <p className="text-sm text-gray-600">Ver detalle de servicios móviles</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="text-sm text-gray-500">Servicios Móviles</p>
+                    <p className="text-xl font-bold text-orange-600">
+                      Q {totales.ingresosMoviles.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-orange-500">
+                      {totales.ingresos > 0 ? ((totales.ingresosMoviles / totales.ingresos) * 100).toFixed(1) : 0}% del total
+                    </p>
+                  </div>
+                  <div className={`transform transition-transform ${desgloseExpandido ? 'rotate-180' : ''}`}>
+                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
               </div>
+            </button>
 
-              <div className="bg-white p-4 rounded-lg border-2 border-orange-300">
-                <p className="text-sm text-orange-700 font-semibold">📱 Servicios Móviles</p>
-                <p className="text-2xl font-bold text-orange-600">
-                  Q {totales.ingresosMoviles.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-orange-600 mt-1 font-medium">
-                  {totales.ingresos > 0 ? ((totales.ingresosMoviles / totales.ingresos) * 100).toFixed(1) : 0}% del total
-                </p>
+            {/* Contenido expandible */}
+            {desgloseExpandido && (
+              <div className="mt-4 bg-orange-50 border border-orange-300 rounded-lg p-4 transition-all duration-300 ease-in-out">
+                <div className="grid md:grid-cols-3 gap-3 mb-3">
+                  <div className="bg-white p-3 rounded-lg shadow-sm">
+                    <p className="text-xs text-gray-500">Consultas Regulares</p>
+                    <p className="text-lg font-bold text-green-600">
+                      Q {totales.ingresosConsultas.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {totales.ingresos > 0 ? ((totales.ingresosConsultas / totales.ingresos) * 100).toFixed(1) : 0}%
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border-2 border-orange-400 shadow-sm">
+                    <p className="text-xs text-orange-700 font-semibold">📱 Servicios Móviles</p>
+                    <p className="text-lg font-bold text-orange-600">
+                      Q {totales.ingresosMoviles.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-orange-500 mt-1 font-medium">
+                      {totales.ingresos > 0 ? ((totales.ingresosMoviles / totales.ingresos) * 100).toFixed(1) : 0}%
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg shadow-sm">
+                    <p className="text-xs text-gray-500">Otros Ingresos</p>
+                    <p className="text-lg font-bold text-blue-600">
+                      Q {totales.ingresosAdicionales.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {totales.ingresos > 0 ? ((totales.ingresosAdicionales / totales.ingresos) * 100).toFixed(1) : 0}%
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2 text-xs text-orange-700 bg-white bg-opacity-50 p-2 rounded">
+                  <span className="flex-shrink-0">ℹ️</span>
+                  <span>Los servicios móviles SÍ cuentan como ingresos, pero NO generan comisiones para médicos referentes.</span>
+                </div>
               </div>
-
-              <div className="bg-white p-4 rounded-lg">
-                <p className="text-sm text-gray-600">Otros Ingresos</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  Q {totales.ingresosAdicionales.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {totales.ingresos > 0 ? ((totales.ingresosAdicionales / totales.ingresos) * 100).toFixed(1) : 0}% del total
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 bg-white p-3 rounded text-sm text-orange-800">
-              ℹ️ <strong>Nota importante:</strong> Los servicios móviles SÍ cuentan como ingresos, pero NO generan comisiones para médicos referentes.
-            </div>
+            )}
           </div>
         )}
 

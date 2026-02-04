@@ -46,13 +46,21 @@ interface Estudio {
   nombre: string;
 }
 
-// ✅ FUNCIÓN ACTUALIZADA PARA GENERAR REPORTE DE SERVICIOS MÓVILES CON TOTALES
-export const generarReporteMoviles = async (
+// ✅ FUNCIÓN PARA GENERAR REPORTE GENERAL (COMPLETA)
+export const generarReporteExcel = async (
   mes: number,
   anio: number,
   consultas: Consulta[]
 ): Promise<void> => {
   const workbook = new ExcelJS.Workbook();
+
+  // Obtener todos los estudios disponibles
+  const { data: estudiosDisponibles, error: errorEstudios } = await supabase
+    .from('estudios')
+    .select('id, nombre')
+    .order('nombre');
+
+  if (errorEstudios) throw errorEstudios;
 
   // Agrupar consultas por día
   const consultasPorDia: { [key: number]: Consulta[] } = {};
@@ -77,7 +85,7 @@ export const generarReporteMoviles = async (
   for (const dia of diasAGenerar) {
     const consultasDia = consultasPorDia[dia] || [];
     const nombreHoja = `${dia.toString().padStart(2, '0')}${mes.toString().padStart(2, '0')}${anio.toString().slice(-2)}`;
-    await crearHojaMoviles(workbook, nombreHoja, dia, mes, anio, consultasDia);
+    await crearHojaDiaria(workbook, nombreHoja, dia, mes, anio, consultasDia, estudiosDisponibles || []);
   }
 
   // Generar archivo y descargar
@@ -89,345 +97,11 @@ export const generarReporteMoviles = async (
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `SERVICIOS_MOVILES_${nombreMes}_${anio}.xlsx`;
+  a.download = `REPORTE_${nombreMes}_${anio}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
-};
-
-// ✅ FUNCIÓN ACTUALIZADA PARA CREAR HOJA DIARIA DE MÓVILES CON CUADRO DE TOTALES
-async function crearHojaMoviles(
-  workbook: ExcelJS.Workbook,
-  nombreHoja: string,
-  dia: number,
-  mes: number,
-  anio: number,
-  consultas: Consulta[]
-): Promise<void> {
-  const worksheet = workbook.addWorksheet(nombreHoja);
-  const fecha = `${dia.toString().padStart(2, '0')}/${mes.toString().padStart(2, '0')}/${anio}`;
-
-  // Configurar anchos de columna
-  worksheet.columns = [
-    { width: 4 },   // No.
-    { width: 30 },  // Establecimiento
-    { width: 25 },  // Paciente
-    { width: 10 },  // Edad
-    { width: 35 },  // Estudios RX
-    { width: 12 },  // Precio
-    { width: 20 },  // Extras
-    { width: 12 },  // Total
-    { width: 15 },  // Forma de Pago
-  ];
-
-  // FILA 1: TÍTULO
-  worksheet.mergeCells('B1:D1');
-  worksheet.mergeCells('E1:I1');
-  
-  const cellFecha = worksheet.getCell('B1');
-  cellFecha.value = `📱 SERVICIOS MÓVILES - FECHA: ${fecha}`;
-  cellFecha.font = { name: 'Calibri', size: 11, bold: true };
-  cellFecha.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFFFA500' } // Naranja
-  };
-  cellFecha.alignment = { horizontal: 'left', vertical: 'middle' };
-  cellFecha.border = {
-    top: { style: 'thin' },
-    bottom: { style: 'thin' },
-    left: { style: 'thin' },
-    right: { style: 'thin' }
-  };
-
-  const cellConrad = worksheet.getCell('E1');
-  cellConrad.value = 'CONRAD CENTRAL';
-  cellConrad.font = { name: 'Calibri', size: 14, bold: true };
-  cellConrad.alignment = { horizontal: 'center', vertical: 'middle' };
-  cellConrad.border = {
-    top: { style: 'thin' },
-    bottom: { style: 'thin' },
-    left: { style: 'thin' },
-    right: { style: 'thin' }
-  };
-
-  // FILA 2: HEADERS
-  const headers = [
-    '',
-    'ESTABLECIMIENTO',
-    'PACIENTE',
-    'EDAD',
-    'ESTUDIOS RX',
-    'PRECIO',
-    'EXTRAS',
-    'TOTAL',
-    'FORMA DE PAGO'
-  ];
-  
-  worksheet.getRow(2).values = headers;
-  worksheet.getRow(2).height = 25;
-  
-  headers.forEach((header, idx) => {
-    if (idx === 0) return;
-    const cell = worksheet.getCell(2, idx + 1);
-    cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFFF8C00' } // Naranja oscuro
-    };
-    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-    cell.border = {
-      top: { style: 'thin' },
-      bottom: { style: 'thin' },
-      left: { style: 'thin' },
-      right: { style: 'thin' }
-    };
-  });
-
-  // FILAS 3+: DATOS
-  let filaActual = 3;
-  let numeroFila = 1;
-
-  consultas.forEach((consulta) => {
-    const estudiosRX = consulta.detalle_consultas
-      .filter(d => d.sub_estudios?.estudios?.nombre?.toUpperCase() === 'RX')
-      .map(d => d.sub_estudios?.nombre || '')
-      .join(', ');
-    
-    const precioRX = consulta.detalle_consultas
-      .filter(d => d.sub_estudios?.estudios?.nombre?.toUpperCase() === 'RX')
-      .reduce((sum, det) => sum + det.precio, 0);
-
-    let extras = 0;
-    let extrasTexto = '';
-    const extrasArray: string[] = [];
-    
-    if (consulta.movil_incluye_placas && consulta.movil_precio_placas) {
-      extras += consulta.movil_precio_placas;
-      extrasArray.push(`Placas: Q${consulta.movil_precio_placas.toFixed(2)}`);
-    }
-    
-    if (consulta.movil_incluye_informe && consulta.movil_precio_informe) {
-      extras += consulta.movil_precio_informe;
-      extrasArray.push(`Informe: Q${consulta.movil_precio_informe.toFixed(2)}`);
-    }
-    
-    extrasTexto = extrasArray.length > 0 ? extrasArray.join(' + ') : '-';
-
-    const totalFinal = precioRX + extras;
-
-    const edadFormateada = consulta.pacientes.edad_valor && consulta.pacientes.edad_tipo
-      ? `${consulta.pacientes.edad_valor} ${consulta.pacientes.edad_tipo}`
-      : `${consulta.pacientes.edad} años`;
-
-    const establecimiento = consulta.movil_establecimiento?.toUpperCase() || 'SIN ESPECIFICAR';
-    const nombrePaciente = consulta.pacientes?.nombre?.toUpperCase() || 'SIN NOMBRE';
-
-    const formaPagoTexto = (() => {
-      switch (consulta.forma_pago) {
-        case 'efectivo':
-          return 'EFECTIVO';
-        case 'efectivo_facturado':
-          return 'DEPOSITADO';
-        case 'transferencia':
-          return 'DEPOSITADO';
-        case 'tarjeta':
-          return 'TARJETA';
-        case 'estado_cuenta':
-          return 'ESTADO DE CUENTA';
-        default:
-          return consulta.forma_pago?.toUpperCase() || 'SIN ESPECIFICAR';
-      }
-    })();
-
-    const valoresFila: any[] = [
-      numeroFila,
-      establecimiento,
-      nombrePaciente,
-      edadFormateada,
-      estudiosRX.toUpperCase() || 'SIN ESTUDIOS',
-      precioRX,
-      extrasTexto,
-      totalFinal,
-      formaPagoTexto
-    ];
-
-    worksheet.getRow(filaActual).values = valoresFila;
-
-    valoresFila.forEach((valor, colIdx) => {
-      const cell = worksheet.getCell(filaActual, colIdx + 1);
-      
-      cell.font = { name: 'Arial', size: 10 };
-
-      if (colIdx === 0 || colIdx === 3) {
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      } else if (colIdx === 5 || colIdx === 7) {
-        cell.alignment = { horizontal: 'right', vertical: 'middle' };
-      } else {
-        cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
-      }
-
-      if (typeof valor === 'number' && (colIdx === 5 || colIdx === 7)) {
-        cell.numFmt = '#,##0.00';
-      }
-
-      cell.border = {
-        top: { style: 'thin' },
-        bottom: { style: 'thin' },
-        left: { style: 'thin' },
-        right: { style: 'thin' }
-      };
-    });
-
-    filaActual++;
-    numeroFila++;
-  });
-
-  // ✅ NUEVO: CUADRO DE TOTALES DESGLOSADO POR FORMA DE PAGO
-  const filaTotalesInicio = Math.max(filaActual + 2, 8);
-
-  // Calcular totales por forma de pago
-  const totalesPorFormaPago: { [key: string]: number } = {};
-  
-  consultas.forEach(c => {
-    const precioRX = c.detalle_consultas
-      .filter(d => d.sub_estudios?.estudios?.nombre?.toUpperCase() === 'RX')
-      .reduce((s, d) => s + d.precio, 0);
-    
-    const extras = (c.movil_incluye_placas ? (c.movil_precio_placas || 0) : 0) +
-                   (c.movil_incluye_informe ? (c.movil_precio_informe || 0) : 0);
-    
-    const total = precioRX + extras;
-    
-    // Normalizar forma de pago
-    let formaPago = c.forma_pago;
-    if (formaPago === 'efectivo_facturado' || formaPago === 'transferencia') {
-      formaPago = 'depositado';
-    }
-    
-    if (!totalesPorFormaPago[formaPago]) {
-      totalesPorFormaPago[formaPago] = 0;
-    }
-    totalesPorFormaPago[formaPago] += total;
-  });
-
-  // Calcular total general
-  const totalGeneral = Object.values(totalesPorFormaPago).reduce((sum, val) => sum + val, 0);
-
-  // Mapeo de nombres de forma de pago
-  const nombresFormaPago: { [key: string]: string } = {
-    'efectivo': 'EFECTIVO',
-    'depositado': 'DEPOSITADO',
-    'tarjeta': 'TARJETA',
-    'estado_cuenta': 'ESTADO DE CUENTA'
-  };
-
-  // Crear filas de totales
-  let filaTotal = filaTotalesInicio;
-  
-  // Título del cuadro
-  const cellTituloTotales = worksheet.getCell(filaTotal, 7);
-  cellTituloTotales.value = '💰 TOTALES POR FORMA DE PAGO';
-  cellTituloTotales.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-  cellTituloTotales.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFFF6600' }
-  };
-  cellTituloTotales.alignment = { horizontal: 'center', vertical: 'middle' };
-  cellTituloTotales.border = {
-    top: { style: 'thin' },
-    bottom: { style: 'thin' },
-    left: { style: 'thin' },
-    right: { style: 'thin' }
-  };
-
-  worksheet.mergeCells(filaTotal, 7, filaTotal, 8);
-  filaTotal++;
-
-  // Mostrar cada forma de pago
-  Object.entries(totalesPorFormaPago).forEach(([forma, monto]) => {
-    const cellLabel = worksheet.getCell(filaTotal, 7);
-    cellLabel.value = nombresFormaPago[forma] || forma.toUpperCase();
-    cellLabel.font = { name: 'Calibri', size: 10, bold: true };
-    cellLabel.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFFFD700' }
-    };
-    cellLabel.alignment = { horizontal: 'right', vertical: 'middle' };
-    cellLabel.border = {
-      top: { style: 'thin' },
-      bottom: { style: 'thin' },
-      left: { style: 'thin' },
-      right: { style: 'thin' }
-    };
-
-    const cellValor = worksheet.getCell(filaTotal, 8);
-    cellValor.value = monto;
-    cellValor.numFmt = '#,##0.00';
-    cellValor.font = { name: 'Calibri', size: 10, bold: true };
-    cellValor.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFFFD700' }
-    };
-    cellValor.alignment = { horizontal: 'right', vertical: 'middle' };
-    cellValor.border = {
-      top: { style: 'thin' },
-      bottom: { style: 'thin' },
-      left: { style: 'thin' },
-      right: { style: 'thin' }
-    };
-
-    filaTotal++;
-  });
-
-  // Total general
-  const cellLabelTotal = worksheet.getCell(filaTotal, 7);
-  cellLabelTotal.value = 'TOTAL GENERADO:';
-  cellLabelTotal.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-  cellLabelTotal.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFFF8C00' }
-  };
-  cellLabelTotal.alignment = { horizontal: 'right', vertical: 'middle' };
-  cellLabelTotal.border = {
-    top: { style: 'thin' },
-    bottom: { style: 'thin' },
-    left: { style: 'thin' },
-    right: { style: 'thin' }
-  };
-
-  const cellValorTotal = worksheet.getCell(filaTotal, 8);
-  cellValorTotal.value = totalGeneral;
-  cellValorTotal.numFmt = '#,##0.00';
-  cellValorTotal.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-  cellValorTotal.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFFF8C00' }
-  };
-  cellValorTotal.alignment = { horizontal: 'right', vertical: 'middle' };
-  cellValorTotal.border = {
-    top: { style: 'thin' },
-    bottom: { style: 'thin' },
-    left: { style: 'thin' },
-    right: { style: 'thin' }
-  };
-}
-
-// ✅ FUNCIÓN ORIGINAL PARA REPORTES GENERALES (SIN CAMBIOS)
-export const generarReporteExcel = async (
-  mes: number,
-  anio: number,
-  consultas: Consulta[]
-): Promise<void> => {
-  // ... (código sin cambios del archivo original)
-  // Por brevedad, no incluyo todo el código aquí
 };
 
 async function crearHojaDiaria(
@@ -775,4 +449,377 @@ async function crearHojaDiaria(
       right: { style: 'thin' }
     };
   });
+}
+
+// ✅ FUNCIÓN PARA GENERAR REPORTE DE MÓVILES CON TOTALES
+export const generarReporteMoviles = async (
+  mes: number,
+  anio: number,
+  consultas: Consulta[]
+): Promise<void> => {
+  const workbook = new ExcelJS.Workbook();
+
+  // Agrupar consultas por día
+  const consultasPorDia: { [key: number]: Consulta[] } = {};
+  consultas.forEach(consulta => {
+    const fecha = new Date(consulta.fecha + 'T12:00:00');
+    const dia = fecha.getDate();
+    if (!consultasPorDia[dia]) consultasPorDia[dia] = [];
+    consultasPorDia[dia].push(consulta);
+  });
+
+  const diasConConsultas = Object.keys(consultasPorDia).map(Number).sort((a, b) => a - b);
+
+  let diasAGenerar: number[];
+  if (diasConConsultas.length === 0) {
+    const diasDelMes = new Date(anio, mes, 0).getDate();
+    diasAGenerar = Array.from({ length: diasDelMes }, (_, i) => i + 1);
+  } else {
+    diasAGenerar = diasConConsultas;
+  }
+
+  // Crear hoja por cada día
+  for (const dia of diasAGenerar) {
+    const consultasDia = consultasPorDia[dia] || [];
+    const nombreHoja = `${dia.toString().padStart(2, '0')}${mes.toString().padStart(2, '0')}${anio.toString().slice(-2)}`;
+    await crearHojaMoviles(workbook, nombreHoja, dia, mes, anio, consultasDia);
+  }
+
+  // Generar archivo y descargar
+  const nombreMes = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+    'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'][mes - 1];
+  
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `SERVICIOS_MOVILES_${nombreMes}_${anio}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
+
+async function crearHojaMoviles(
+  workbook: ExcelJS.Workbook,
+  nombreHoja: string,
+  dia: number,
+  mes: number,
+  anio: number,
+  consultas: Consulta[]
+): Promise<void> {
+  const worksheet = workbook.addWorksheet(nombreHoja);
+  const fecha = `${dia.toString().padStart(2, '0')}/${mes.toString().padStart(2, '0')}/${anio}`;
+
+  // Configurar anchos de columna
+  worksheet.columns = [
+    { width: 4 },   // No.
+    { width: 30 },  // Establecimiento
+    { width: 25 },  // Paciente
+    { width: 10 },  // Edad
+    { width: 35 },  // Estudios RX
+    { width: 12 },  // Precio
+    { width: 20 },  // Extras
+    { width: 12 },  // Total
+    { width: 15 },  // Forma de Pago
+  ];
+
+  // FILA 1: TÍTULO
+  worksheet.mergeCells('B1:D1');
+  worksheet.mergeCells('E1:I1');
+  
+  const cellFecha = worksheet.getCell('B1');
+  cellFecha.value = `📱 SERVICIOS MÓVILES - FECHA: ${fecha}`;
+  cellFecha.font = { name: 'Calibri', size: 11, bold: true };
+  cellFecha.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFFA500' } // Naranja
+  };
+  cellFecha.alignment = { horizontal: 'left', vertical: 'middle' };
+  cellFecha.border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  const cellConrad = worksheet.getCell('E1');
+  cellConrad.value = 'CONRAD CENTRAL';
+  cellConrad.font = { name: 'Calibri', size: 14, bold: true };
+  cellConrad.alignment = { horizontal: 'center', vertical: 'middle' };
+  cellConrad.border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  // FILA 2: HEADERS
+  const headers = [
+    '',
+    'ESTABLECIMIENTO',
+    'PACIENTE',
+    'EDAD',
+    'ESTUDIOS RX',
+    'PRECIO',
+    'EXTRAS',
+    'TOTAL',
+    'FORMA DE PAGO'
+  ];
+  
+  worksheet.getRow(2).values = headers;
+  worksheet.getRow(2).height = 25;
+  
+  headers.forEach((header, idx) => {
+    if (idx === 0) return;
+    const cell = worksheet.getCell(2, idx + 1);
+    cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFF8C00' } // Naranja oscuro
+    };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = {
+      top: { style: 'thin' },
+      bottom: { style: 'thin' },
+      left: { style: 'thin' },
+      right: { style: 'thin' }
+    };
+  });
+
+  // FILAS 3+: DATOS
+  let filaActual = 3;
+  let numeroFila = 1;
+
+  consultas.forEach((consulta) => {
+    const estudiosRX = consulta.detalle_consultas
+      .filter(d => d.sub_estudios?.estudios?.nombre?.toUpperCase() === 'RX')
+      .map(d => d.sub_estudios?.nombre || '')
+      .join(', ');
+    
+    const precioRX = consulta.detalle_consultas
+      .filter(d => d.sub_estudios?.estudios?.nombre?.toUpperCase() === 'RX')
+      .reduce((sum, det) => sum + det.precio, 0);
+
+    let extras = 0;
+    let extrasTexto = '';
+    const extrasArray: string[] = [];
+    
+    if (consulta.movil_incluye_placas && consulta.movil_precio_placas) {
+      extras += consulta.movil_precio_placas;
+      extrasArray.push(`Placas: Q${consulta.movil_precio_placas.toFixed(2)}`);
+    }
+    
+    if (consulta.movil_incluye_informe && consulta.movil_precio_informe) {
+      extras += consulta.movil_precio_informe;
+      extrasArray.push(`Informe: Q${consulta.movil_precio_informe.toFixed(2)}`);
+    }
+    
+    extrasTexto = extrasArray.length > 0 ? extrasArray.join(' + ') : '-';
+
+    const totalFinal = precioRX + extras;
+
+    const edadFormateada = consulta.pacientes.edad_valor && consulta.pacientes.edad_tipo
+      ? `${consulta.pacientes.edad_valor} ${consulta.pacientes.edad_tipo}`
+      : `${consulta.pacientes.edad} años`;
+
+    const establecimiento = consulta.movil_establecimiento?.toUpperCase() || 'SIN ESPECIFICAR';
+    const nombrePaciente = consulta.pacientes?.nombre?.toUpperCase() || 'SIN NOMBRE';
+
+    const formaPagoTexto = (() => {
+      switch (consulta.forma_pago) {
+        case 'efectivo':
+          return 'EFECTIVO';
+        case 'efectivo_facturado':
+          return 'DEPOSITADO';
+        case 'transferencia':
+          return 'DEPOSITADO';
+        case 'tarjeta':
+          return 'TARJETA';
+        case 'estado_cuenta':
+          return 'ESTADO DE CUENTA';
+        default:
+          return consulta.forma_pago?.toUpperCase() || 'SIN ESPECIFICAR';
+      }
+    })();
+
+    const valoresFila: any[] = [
+      numeroFila,
+      establecimiento,
+      nombrePaciente,
+      edadFormateada,
+      estudiosRX.toUpperCase() || 'SIN ESTUDIOS',
+      precioRX,
+      extrasTexto,
+      totalFinal,
+      formaPagoTexto
+    ];
+
+    worksheet.getRow(filaActual).values = valoresFila;
+
+    valoresFila.forEach((valor, colIdx) => {
+      const cell = worksheet.getCell(filaActual, colIdx + 1);
+      
+      cell.font = { name: 'Arial', size: 10 };
+
+      if (colIdx === 0 || colIdx === 3) {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      } else if (colIdx === 5 || colIdx === 7) {
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+      } else {
+        cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+      }
+
+      if (typeof valor === 'number' && (colIdx === 5 || colIdx === 7)) {
+        cell.numFmt = '#,##0.00';
+      }
+
+      cell.border = {
+        top: { style: 'thin' },
+        bottom: { style: 'thin' },
+        left: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+    });
+
+    filaActual++;
+    numeroFila++;
+  });
+
+  // CUADRO DE TOTALES DESGLOSADO POR FORMA DE PAGO
+  const filaTotalesInicio = Math.max(filaActual + 2, 8);
+
+  // Calcular totales por forma de pago
+  const totalesPorFormaPago: { [key: string]: number } = {};
+  
+  consultas.forEach(c => {
+    const precioRX = c.detalle_consultas
+      .filter(d => d.sub_estudios?.estudios?.nombre?.toUpperCase() === 'RX')
+      .reduce((s, d) => s + d.precio, 0);
+    
+    const extras = (c.movil_incluye_placas ? (c.movil_precio_placas || 0) : 0) +
+                   (c.movil_incluye_informe ? (c.movil_precio_informe || 0) : 0);
+    
+    const total = precioRX + extras;
+    
+    // Normalizar forma de pago
+    let formaPago = c.forma_pago;
+    if (formaPago === 'efectivo_facturado' || formaPago === 'transferencia') {
+      formaPago = 'depositado';
+    }
+    
+    if (!totalesPorFormaPago[formaPago]) {
+      totalesPorFormaPago[formaPago] = 0;
+    }
+    totalesPorFormaPago[formaPago] += total;
+  });
+
+  // Calcular total general
+  const totalGeneral = Object.values(totalesPorFormaPago).reduce((sum, val) => sum + val, 0);
+
+  // Mapeo de nombres de forma de pago
+  const nombresFormaPago: { [key: string]: string } = {
+    'efectivo': 'EFECTIVO',
+    'depositado': 'DEPOSITADO',
+    'tarjeta': 'TARJETA',
+    'estado_cuenta': 'ESTADO DE CUENTA'
+  };
+
+  // Crear filas de totales
+  let filaTotal = filaTotalesInicio;
+  
+  // Título del cuadro
+  const cellTituloTotales = worksheet.getCell(filaTotal, 7);
+  cellTituloTotales.value = '💰 TOTALES POR FORMA DE PAGO';
+  cellTituloTotales.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+  cellTituloTotales.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF6600' }
+  };
+  cellTituloTotales.alignment = { horizontal: 'center', vertical: 'middle' };
+  cellTituloTotales.border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  worksheet.mergeCells(filaTotal, 7, filaTotal, 8);
+  filaTotal++;
+
+  // Mostrar cada forma de pago
+  Object.entries(totalesPorFormaPago).forEach(([forma, monto]) => {
+    const cellLabel = worksheet.getCell(filaTotal, 7);
+    cellLabel.value = nombresFormaPago[forma] || forma.toUpperCase();
+    cellLabel.font = { name: 'Calibri', size: 10, bold: true };
+    cellLabel.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFD700' }
+    };
+    cellLabel.alignment = { horizontal: 'right', vertical: 'middle' };
+    cellLabel.border = {
+      top: { style: 'thin' },
+      bottom: { style: 'thin' },
+      left: { style: 'thin' },
+      right: { style: 'thin' }
+    };
+
+    const cellValor = worksheet.getCell(filaTotal, 8);
+    cellValor.value = monto;
+    cellValor.numFmt = '#,##0.00';
+    cellValor.font = { name: 'Calibri', size: 10, bold: true };
+    cellValor.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFD700' }
+    };
+    cellValor.alignment = { horizontal: 'right', vertical: 'middle' };
+    cellValor.border = {
+      top: { style: 'thin' },
+      bottom: { style: 'thin' },
+      left: { style: 'thin' },
+      right: { style: 'thin' }
+    };
+
+    filaTotal++;
+  });
+
+  // Total general
+  const cellLabelTotal = worksheet.getCell(filaTotal, 7);
+  cellLabelTotal.value = 'TOTAL GENERADO:';
+  cellLabelTotal.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+  cellLabelTotal.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF8C00' }
+  };
+  cellLabelTotal.alignment = { horizontal: 'right', vertical: 'middle' };
+  cellLabelTotal.border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  const cellValorTotal = worksheet.getCell(filaTotal, 8);
+  cellValorTotal.value = totalGeneral;
+  cellValorTotal.numFmt = '#,##0.00';
+  cellValorTotal.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+  cellValorTotal.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFFF8C00' }
+  };
+  cellValorTotal.alignment = { horizontal: 'right', vertical: 'middle' };
+  cellValorTotal.border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' }
+  };
 }
