@@ -11,6 +11,13 @@ interface HomePageProps {
   onNavigate: (page: string) => void;
 }
 
+// ✅ NUEVO: Interface para pagos múltiples
+interface PagoMultiple {
+  forma_pago: 'efectivo' | 'tarjeta' | 'transferencia' | 'depositado';
+  monto: number;
+  numero_referencia?: string;
+}
+
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [showNuevoModal, setShowNuevoModal] = useState(false);
   const [pacienteActual, setPacienteActual] = useState<(Paciente & { id: string }) | null>(null);
@@ -18,19 +25,16 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [sinInfoMedico, setSinInfoMedico] = useState(false);
   const [esServicioMovil, setEsServicioMovil] = useState(false);
   
-  // ✅ Estados para opciones extras de servicios móviles
   const [incluyePlacas, setIncluyePlacas] = useState(false);
   const [precioPlacas, setPrecioPlacas] = useState(0);
   const [incluyeInforme, setIncluyeInforme] = useState(false);
   const [precioInforme, setPrecioInforme] = useState(0);
   const [establecimientoMovil, setEstablecimientoMovil] = useState('');
 
-  // ✅ NUEVOS Estados para controlar guardado e impresión
   const [consultaGuardada, setConsultaGuardada] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [numeroPacienteGuardado, setNumeroPacienteGuardado] = useState<number | null>(null);
 
-  // Estados del formulario principal
   const [tipoCobro, setTipoCobro] = useState<TipoCobro>('normal');
   const [justificacionEspecial, setJustificacionEspecial] = useState('');
   const [showJustificacion, setShowJustificacion] = useState(false);
@@ -38,44 +42,47 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [subEstudios, setSubEstudios] = useState<SubEstudio[]>([]);
   const [estudioSeleccionado, setEstudioSeleccionado] = useState('');
   const [subEstudioSeleccionado, setSubEstudioSeleccionado] = useState('');
-  const [descripcion, setDescripcion] = useState<DetalleConsulta[]>([]);
+  
+  // ✅ NUEVO: Estado con campo es_referido
+  const [descripcion, setDescripcion] = useState<(DetalleConsulta & { es_referido: boolean })[]>([]);
+  
   const [requiereFactura, setRequiereFactura] = useState(false);
   const [nit, setNit] = useState('');
-  const [formaPago, setFormaPago] = useState<FormaPago>('efectivo');
+  const [formaPago, setFormaPago] = useState<FormaPago | 'multiple'>('efectivo');
   const [numeroFactura, setNumeroFactura] = useState('');
   const [numeroTransferencia, setNumeroTransferencia] = useState('');
   const [numeroVoucher, setNumeroVoucher] = useState('');
 
-  // Función para determinar si es horario normal
+  // ✅ NUEVO: Estados para pagos múltiples
+  const [showModalPagosMultiples, setShowModalPagosMultiples] = useState(false);
+  const [pagosMultiples, setPagosMultiples] = useState<PagoMultiple[]>([
+    { forma_pago: 'efectivo', monto: 0 }
+  ]);
+
   const esHorarioNormal = () => {
     const now = new Date();
-    const dia = now.getDay(); // 0 = Domingo, 6 = Sábado
+    const dia = now.getDay();
     const hora = now.getHours();
     
-    // Lunes a Viernes 7am-4pm
     if (dia >= 1 && dia <= 5) {
       return hora >= 7 && hora < 16;
     }
-    // Sábado 7am-11am
     if (dia === 6) {
       return hora >= 7 && hora < 11;
     }
     return false;
   };
 
-  // Auto-seleccionar tipo de cobro según horario
   useEffect(() => {
     const horarioNormal = esHorarioNormal();
     setTipoCobro(horarioNormal ? 'normal' : 'especial');
   }, []);
 
-  // Cargar estudios y sub-estudios
   useEffect(() => {
     cargarEstudios();
     cargarSubEstudios();
   }, []);
 
-  // Actualizar precios cuando cambie el tipo de cobro (SOLO si NO es personalizado)
   useEffect(() => {
     if (descripcion.length > 0 && tipoCobro !== 'personalizado') {
       const nuevaDescripcion = descripcion.map(item => {
@@ -94,22 +101,18 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     }
   }, [tipoCobro]);
 
-  // Actualizar forma de pago cuando cambie el tipo de factura
   useEffect(() => {
     if (requiereFactura) {
-      // Si activa factura y tiene "efectivo", cambiar a "efectivo_facturado"
       if (formaPago === 'efectivo') {
         setFormaPago('efectivo_facturado');
       }
     } else {
-      // Si desactiva factura y tiene "efectivo_facturado", cambiar a "efectivo"
       if (formaPago === 'efectivo_facturado') {
         setFormaPago('efectivo');
       }
     }
   }, [requiereFactura]);
 
-  // Combinación de teclas secreta: Ctrl + Shift + U para Gestión de Usuarios
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'U') {
@@ -130,7 +133,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         .eq('activo', true);
       
       if (error) throw error;
-      console.log('Estudios cargados:', data);
       setEstudios(data || []);
     } catch (error) {
       console.error('Error al cargar estudios:', error);
@@ -145,27 +147,22 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         .eq('activo', true);
       
       if (error) throw error;
-      console.log('Sub-estudios cargados:', data);
       setSubEstudios(data || []);
     } catch (error) {
       console.error('Error al cargar sub-estudios:', error);
     }
   };
 
-  // Filtrar sub-estudios por estudio
   const subEstudiosFiltrados = subEstudios.filter(
     se => se.estudio_id === estudioSeleccionado
   );
 
-  // Verificar si estamos en horario normal
-  // Agregar sub-estudio a descripción
   const agregarSubEstudio = () => {
     if (!subEstudioSeleccionado) return;
 
     const subEstudio = subEstudios.find(se => se.id === subEstudioSeleccionado);
     if (!subEstudio) return;
 
-    // ✅ VALIDACIÓN: Solo RX para servicios móviles
     if (esServicioMovil) {
       const estudio = estudios.find(e => e.id === subEstudio.estudio_id);
       if (estudio && estudio.nombre.toUpperCase() !== 'RX') {
@@ -180,29 +177,34 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       ? subEstudio.precio_social 
       : subEstudio.precio_especial;
 
-    const nuevoDetalle: DetalleConsulta = {
+    // ✅ NUEVO: Agregar con campo es_referido = true por defecto
+    const nuevoDetalle = {
       sub_estudio_id: subEstudio.id!,
       precio,
-      consulta_id: '' // Se asignará al guardar
+      consulta_id: '',
+      es_referido: true // Por defecto, sí genera comisión
     };
 
     setDescripcion([...descripcion, nuevoDetalle]);
-    // Solo limpiar sub-estudio, mantener el estudio seleccionado
     setSubEstudioSeleccionado('');
   };
 
-  // Eliminar item de descripción
   const eliminarDeDescripcion = (index: number) => {
     const nuevaDescripcion = descripcion.filter((_, i) => i !== index);
     setDescripcion(nuevaDescripcion);
   };
 
-  // ✅ Calcular totales - ACTUALIZADO para incluir placas e informe
+  // ✅ NUEVO: Toggle para marcar/desmarcar referido
+  const toggleReferido = (index: number) => {
+    const nuevaDescripcion = [...descripcion];
+    nuevaDescripcion[index].es_referido = !nuevaDescripcion[index].es_referido;
+    setDescripcion(nuevaDescripcion);
+  };
+
   const calcularTotales = () => {
     const subTotal = descripcion.reduce((sum, item) => sum + item.precio, 0);
     const descuento = 0;
     
-    // Agregar costos extras de móviles
     let extrasMovil = 0;
     if (esServicioMovil) {
       if (incluyePlacas) extrasMovil += precioPlacas;
@@ -216,10 +218,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     return { subTotal, descuento, montoGravable, impuesto, total, extrasMovil };
   };
 
-  // Guardar nuevo paciente
   const handleGuardarPaciente = async (paciente: Paciente, medico: Medico | null, sinInfo: boolean, esServicioMovil: boolean = false) => {
     try {
-      // Insertar paciente
       const { data: pacienteData, error: pacienteError } = await supabase
         .from('pacientes')
         .insert([paciente])
@@ -228,12 +228,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
       if (pacienteError) throw pacienteError;
 
-      // Insertar o buscar médico si existe
       if (medico && !sinInfo) {
         if (medico.id) {
-          // Médico referente existente - ya está en medico.id
+          // Médico referente existente
         } else {
-          // Nuevo médico no referente
           const { data: medicoData, error: medicoError } = await supabase
             .from('medicos')
             .insert([medico])
@@ -250,7 +248,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       setSinInfoMedico(sinInfo);
       setEsServicioMovil(esServicioMovil);
       
-      // ✅ CORREGIDO: Sugerir tipo especial pero permitir cambio
       if (esServicioMovil) {
         setTipoCobro('especial');
       }
@@ -268,7 +265,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     }
   };
 
-  // ✅ Limpiar todo - ACTUALIZADO para limpiar opciones de móviles y estados de guardado
   const handleLimpiar = () => {
     if (confirm('¿Está seguro de que desea limpiar toda la información?')) {
       setPacienteActual(null);
@@ -292,14 +288,34 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       setNumeroFactura('');
       setNumeroTransferencia('');
       setNumeroVoucher('');
-      // ✅ Resetear estados de guardado
       setConsultaGuardada(null);
       setGuardando(false);
       setNumeroPacienteGuardado(null);
+      setPagosMultiples([{ forma_pago: 'efectivo', monto: 0 }]);
     }
   };
 
-  // ✅ NUEVA FUNCIÓN: Solo guardar (sin imprimir)
+  // ✅ NUEVO: Validar pagos múltiples
+  const validarPagosMultiples = (): boolean => {
+    const totalPagos = pagosMultiples.reduce((sum, p) => sum + p.monto, 0);
+    const totalEsperado = calcularTotales().total;
+    
+    if (Math.abs(totalPagos - totalEsperado) > 0.01) {
+      alert(`❌ La suma de pagos (Q${totalPagos.toFixed(2)}) no coincide con el total (Q${totalEsperado.toFixed(2)})`);
+      return false;
+    }
+
+    // Validar referencias si hay transferencia
+    for (const pago of pagosMultiples) {
+      if (pago.forma_pago === 'transferencia' && !pago.numero_referencia) {
+        alert('❌ Debe ingresar el número de referencia para la transferencia');
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   const handleGuardar = async () => {
     if (!pacienteActual) {
       alert('Debe crear un paciente primero usando el botón "Nuevo"');
@@ -311,32 +327,32 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       return;
     }
 
-    // ✅ Validar establecimiento para servicios móviles
     if (esServicioMovil && !establecimientoMovil.trim()) {
       alert('Debe ingresar el nombre del establecimiento para servicios móviles');
       return;
     }
 
-    // Validar justificación si se usa tarifa normal fuera de horario
     const horarioNormal = esHorarioNormal();
     if (tipoCobro === 'normal' && !horarioNormal && !justificacionEspecial.trim()) {
       alert('Debe proporcionar una justificación para usar tarifa normal fuera del horario establecido');
       return;
     }
 
-    // Validar justificación para personalizado (solo si NO es servicio móvil)
     if (tipoCobro === 'personalizado' && !esServicioMovil && !justificacionEspecial.trim()) {
       alert('Debe proporcionar una justificación para usar precio personalizado');
       return;
     }
 
-    // Validar número de transferencia
+    // ✅ NUEVO: Validar pagos múltiples
+    if (formaPago === 'multiple' && !validarPagosMultiples()) {
+      return;
+    }
+
     if (formaPago === 'transferencia' && !numeroTransferencia.trim()) {
       alert('Debe ingresar el número de transferencia');
       return;
     }
 
-    // Prevenir guardado duplicado
     if (guardando) {
       alert('⏳ Ya se está guardando, por favor espere...');
       return;
@@ -353,7 +369,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     setGuardando(true);
 
     try {
-      // Calcular el próximo número de paciente del día (solo para pacientes regulares)
       let siguienteNumero = null;
       
       if (!esServicioMovil) {
@@ -372,7 +387,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         siguienteNumero = (ultimaConsulta?.numero_paciente || 0) + 1;
       }
 
-      // ✅ Crear consulta con opciones de móviles y tipo de cobro correcto
+      // ✅ NUEVO: Preparar JSON de pagos múltiples
+      const pagosMultiplesJSON = formaPago === 'multiple' ? {
+        usar_multiples: true,
+        pagos: pagosMultiples
+      } : null;
+
       const { data: consultaData, error: consultaError } = await supabase
         .from('consultas')
         .insert([{
@@ -380,7 +400,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           paciente_id: pacienteActual.id,
           medico_id: medicoActual?.id || null,
           medico_recomendado: medicoActual?.nombre || null,
-          tipo_cobro: tipoCobro, // ✅ Usar el tipo de cobro seleccionado
+          tipo_cobro: tipoCobro,
           requiere_factura: requiereFactura,
           nit: requiereFactura ? nit : null,
           forma_pago: formaPago,
@@ -391,23 +411,24 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           justificacion_especial: ((tipoCobro === 'normal' && !horarioNormal) || (tipoCobro === 'personalizado' && !esServicioMovil)) ? justificacionEspecial : null,
           fecha: format(new Date(), 'yyyy-MM-dd'),
           es_servicio_movil: esServicioMovil,
-          // ✅ Nuevos campos para opciones de móviles
           movil_incluye_placas: esServicioMovil ? incluyePlacas : null,
           movil_precio_placas: esServicioMovil && incluyePlacas ? precioPlacas : null,
           movil_incluye_informe: esServicioMovil ? incluyeInforme : null,
           movil_precio_informe: esServicioMovil && incluyeInforme ? precioInforme : null,
-          movil_establecimiento: esServicioMovil ? establecimientoMovil : null
+          movil_establecimiento: esServicioMovil ? establecimientoMovil : null,
+          pagos_multiples: pagosMultiplesJSON // ✅ NUEVO
         }])
         .select()
         .single();
 
       if (consultaError) throw consultaError;
 
-      // Insertar detalles
+      // ✅ NUEVO: Insertar detalles con campo es_referido
       const detalles = descripcion.map(d => ({
         consulta_id: consultaData.id,
         sub_estudio_id: d.sub_estudio_id,
-        precio: d.precio
+        precio: d.precio,
+        es_referido: d.es_referido // ✅ NUEVO
       }));
 
       const { error: detallesError } = await supabase
@@ -416,7 +437,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
       if (detallesError) throw detallesError;
 
-      // ✅ Guardar el ID de la consulta y el número de paciente
       setConsultaGuardada(consultaData.id);
       setNumeroPacienteGuardado(consultaData.numero_paciente);
       
@@ -430,7 +450,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     }
   };
 
-  // ✅ NUEVA FUNCIÓN: Solo imprimir (requiere haber guardado primero)
   const handleImprimir = async () => {
     if (!consultaGuardada) {
       alert('⚠️ Debe guardar la consulta primero usando el botón "Guardar"');
@@ -455,7 +474,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         };
       });
 
-      // ✅ Agregar extras de móvil al recibo
       if (esServicioMovil) {
         if (incluyePlacas) {
           estudiosRecibo.push({
@@ -491,7 +509,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         sinInfoMedico
       };
 
-      // Preguntar qué tipo de recibo imprimir
       const tipoRecibo = confirm(
         '¿Qué recibo desea imprimir?\n\n' +
         'Aceptar (OK) = Recibo Completo (con precios)\n' +
@@ -506,7 +523,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         abrirRecibo(htmlMedico, 'Orden Médico');
       }
 
-      // Preguntar si desea crear una nueva consulta
       setTimeout(() => {
         const nuevaConsulta = confirm('✅ Recibo impreso.\n\n¿Desea crear una nueva consulta?');
         if (nuevaConsulta) {
@@ -520,104 +536,108 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     }
   };
 
+  // ✅ NUEVO: Agregar pago al modal
+  const agregarPago = () => {
+    setPagosMultiples([...pagosMultiples, { forma_pago: 'efectivo', monto: 0 }]);
+  };
+
+  // ✅ NUEVO: Eliminar pago
+  const eliminarPago = (index: number) => {
+    if (pagosMultiples.length === 1) {
+      alert('Debe haber al menos un pago');
+      return;
+    }
+    setPagosMultiples(pagosMultiples.filter((_, i) => i !== index));
+  };
+
+  // ✅ NUEVO: Actualizar pago
+  const actualizarPago = (index: number, campo: 'forma_pago' | 'monto' | 'numero_referencia', valor: any) => {
+    const nuevosPagos = [...pagosMultiples];
+    nuevosPagos[index] = { ...nuevosPagos[index], [campo]: valor };
+    setPagosMultiples(nuevosPagos);
+  };
+
   const totales = calcularTotales();
   const horarioNormal = esHorarioNormal();
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+      {/* ✅ HEADER MEJORADO */}
       <header className="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg">
         <div className="container mx-auto px-4 py-6">
-          <h1 className="text-3xl font-bold">CONRAD - Centro de Diagnóstico</h1>
-          <p className="text-blue-100 mt-2">Sistema de Gestión de Consultas</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Centro de Diagnóstico</h1>
+              <p className="text-blue-100 mt-2">Sistema de Gestión de Consultas</p>
+            </div>
+            <div className="text-right text-sm text-blue-100">
+              <p>{format(new Date(), 'EEEE, dd MMMM yyyy')}</p>
+              <p>{format(new Date(), 'HH:mm')}</p>
+            </div>
+          </div>
         </div>
       </header>
 
       {/* Barra de botones principales */}
-      <div className="container mx-auto py-4">
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setShowNuevoModal(true)}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Plus size={20} />
-            Nuevo
-          </button>
-          <button 
-            onClick={() => onNavigate('productos')}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <FileText size={20} />
-            Productos
-          </button>
-          <button 
-            onClick={() => onNavigate('referentes')}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <Users size={20} />
-            Referentes
-          </button>
-          <button 
-            onClick={() => onNavigate('pacientes')}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <Users size={20} />
-            Pacientes
-          </button>
-          <button 
-            onClick={() => onNavigate('cuadre')}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <BarChart3 size={20} />
-            Cuadre Diario
-          </button>
-          <button 
-            onClick={() => onNavigate('cuadre-quincenal')}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <Calendar size={20} />
-            Cuadre Quincenal
-          </button>
-          <button 
-            onClick={() => onNavigate('estadisticas')}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <BarChart3 size={20} />
-            Estadísticas
-          </button>
-          <button 
-            onClick={() => onNavigate('reportes')}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <FileSpreadsheet size={20} />
-            Reportes
-          </button>
-          <button 
-            onClick={() => onNavigate('comisiones')}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <DollarSign size={20} />
-            Comisiones
-          </button>
+      <div className="bg-white shadow-sm border-b">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex flex-wrap gap-3">
+            <button onClick={() => setShowNuevoModal(true)} className="btn-primary flex items-center gap-2">
+              <Plus size={20} />
+              Nuevo
+            </button>
+            <button onClick={() => onNavigate('productos')} className="btn-secondary flex items-center gap-2">
+              <FileText size={20} />
+              Productos
+            </button>
+            <button onClick={() => onNavigate('referentes')} className="btn-secondary flex items-center gap-2">
+              <Users size={20} />
+              Referentes
+            </button>
+            <button onClick={() => onNavigate('pacientes')} className="btn-secondary flex items-center gap-2">
+              <Users size={20} />
+              Pacientes
+            </button>
+            <button onClick={() => onNavigate('cuadre')} className="btn-secondary flex items-center gap-2">
+              <BarChart3 size={20} />
+              Cuadre Diario
+            </button>
+            <button onClick={() => onNavigate('cuadre-quincenal')} className="btn-secondary flex items-center gap-2">
+              <Calendar size={20} />
+              Cuadre Quincenal
+            </button>
+            <button onClick={() => onNavigate('estadisticas')} className="btn-secondary flex items-center gap-2">
+              <BarChart3 size={20} />
+              Estadísticas
+            </button>
+            <button onClick={() => onNavigate('reportes')} className="btn-secondary flex items-center gap-2">
+              <FileSpreadsheet size={20} />
+              Reportes
+            </button>
+            <button onClick={() => onNavigate('comisiones')} className="btn-secondary flex items-center gap-2">
+              <DollarSign size={20} />
+              Comisiones
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Contenido principal */}
-      <div className="container mx-auto px-4 pb-8">
+      <div className="container mx-auto px-4 pb-8 pt-6">
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Columna izquierda - Información del paciente */}
           <div className="lg:col-span-2 space-y-6">
             {pacienteActual && (
               <div className="card">
-                <h3 className="text-lg font-semibold mb-3">
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                   Información del Paciente
                   {esServicioMovil && (
-                    <span className="ml-2 text-sm bg-orange-500 text-white px-3 py-1 rounded-full">
+                    <span className="text-sm bg-orange-500 text-white px-3 py-1 rounded-full">
                       📱 SERVICIO MÓVIL
                     </span>
                   )}
                   {consultaGuardada && (
-                    <span className="ml-2 text-sm bg-green-500 text-white px-3 py-1 rounded-full">
+                    <span className="text-sm bg-green-500 text-white px-3 py-1 rounded-full">
                       ✅ GUARDADO
                     </span>
                   )}
@@ -647,12 +667,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               <div className="card bg-blue-50 border-2 border-blue-200">
                 <div className="text-center py-8">
                   <div className="text-4xl mb-4">🏥</div>
-                  <h3 className="text-xl font-bold text-blue-900 mb-2">Bienvenido a CONRAD</h3>
-                  <p className="text-blue-700 mb-4">Centro de Diagnóstico - Para comenzar, registra un nuevo paciente</p>
-                  <button
-                    onClick={() => setShowNuevoModal(true)}
-                    className="btn-primary inline-flex items-center gap-2"
-                  >
+                  <h3 className="text-xl font-bold text-blue-900 mb-2">Bienvenido al Centro de Diagnóstico</h3>
+                  <p className="text-blue-700 mb-4">Para comenzar, registra un nuevo paciente</p>
+                  <button onClick={() => setShowNuevoModal(true)} className="btn-primary inline-flex items-center gap-2">
                     <Plus size={20} />
                     Crear Nuevo Paciente
                   </button>
@@ -718,7 +735,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                     checked={tipoCobro === 'personalizado'}
                     onChange={() => {
                       setTipoCobro('personalizado');
-                      setShowJustificacion(!esServicioMovil); // No pedir justificación para móviles
+                      setShowJustificacion(!esServicioMovil);
                     }}
                     disabled={!!consultaGuardada}
                     className="mr-2"
@@ -728,7 +745,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 </label>
               </div>
 
-              {/* Modal de justificación */}
               {showJustificacion && (tipoCobro === 'normal' && !horarioNormal || (tipoCobro === 'personalizado' && !esServicioMovil)) && (
                 <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
                   <label className="label">
@@ -753,7 +769,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 </div>
               )}
               
-              {/* Info para servicios móviles */}
               {esServicioMovil && (
                 <div className="mt-4 p-3 bg-orange-100 border border-orange-300 rounded">
                   <p className="text-sm text-orange-800">
@@ -765,14 +780,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               )}
             </div>
 
-            {/* ✅ NUEVAS OPCIONES PARA SERVICIOS MÓVILES */}
             {esServicioMovil && (
               <div className="card bg-orange-50 border-2 border-orange-300">
                 <h3 className="text-lg font-semibold mb-3 text-orange-800">
                   📱 Opciones Extras - Servicio Móvil
                 </h3>
                 
-                {/* Campo Establecimiento */}
                 <div className="mb-4">
                   <label className="label text-orange-900">
                     🏥 Establecimiento / Lugar <span className="text-red-500">*</span>
@@ -792,7 +805,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 </div>
 
                 <div className="space-y-4">
-                  {/* Opción Placas */}
                   <div className="flex items-center gap-4 p-3 bg-white rounded border border-orange-200">
                     <label className="flex items-center gap-2 flex-1">
                       <input
@@ -825,7 +837,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                     )}
                   </div>
 
-                  {/* Opción Informe */}
                   <div className="flex items-center gap-4 p-3 bg-white rounded border border-orange-200">
                     <label className="flex items-center gap-2 flex-1">
                       <input
@@ -895,7 +906,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
               <button
                 onClick={agregarSubEstudio}
-                className="btn-primary mt-4 flex items-center gap-2 justify-center"
+                className="btn-primary mt-4 flex items-center gap-2 justify-center w-full"
                 disabled={!subEstudioSeleccionado || !!consultaGuardada}
               >
                 <Plus size={18} />
@@ -915,7 +926,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               )}
             </div>
 
-            {/* Descripción */}
+            {/* ✅ NUEVO: Descripción con toggle de referido */}
             <div className="card">
               <h3 className="text-lg font-semibold mb-3">Descripción</h3>
               {descripcion.length === 0 ? (
@@ -925,9 +936,22 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   {descripcion.map((item, index) => {
                     const subEstudio = subEstudios.find(se => se.id === item.sub_estudio_id);
                     return (
-                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded border-l-4" 
+                        style={{ borderLeftColor: item.es_referido ? '#10b981' : '#94a3b8' }}>
                         <div className="flex-1">
-                          <div className="font-medium">{subEstudio?.nombre}</div>
+                          <div className="font-medium flex items-center gap-2">
+                            {subEstudio?.nombre}
+                            {/* ✅ NUEVO: Badge de referido */}
+                            {item.es_referido ? (
+                              <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
+                                ✓ Genera comisión
+                              </span>
+                            ) : (
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                Sin comisión
+                              </span>
+                            )}
+                          </div>
                           {tipoCobro === 'personalizado' ? (
                             <div className="flex items-center gap-2 mt-1">
                               <span className="text-sm text-gray-600">Q</span>
@@ -949,16 +973,39 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                             <div className="text-sm text-gray-600">Q {item.precio.toFixed(2)}</div>
                           )}
                         </div>
-                        <button
-                          onClick={() => eliminarDeDescripcion(index)}
-                          className="text-red-600 hover:text-red-800"
-                          disabled={!!consultaGuardada}
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {/* ✅ NUEVO: Toggle de referido */}
+                          {!consultaGuardada && medicoActual && !sinInfoMedico && (
+                            <button
+                              onClick={() => toggleReferido(index)}
+                              className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
+                                item.es_referido 
+                                  ? 'bg-green-500 text-white hover:bg-green-600' 
+                                  : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+                              }`}
+                              title={item.es_referido ? 'Click para no generar comisión' : 'Click para generar comisión'}
+                            >
+                              {item.es_referido ? '✓ Referido' : 'No referido'}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => eliminarDeDescripcion(index)}
+                            className="text-red-600 hover:text-red-800 p-1"
+                            disabled={!!consultaGuardada}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
+                </div>
+              )}
+              {medicoActual && !sinInfoMedico && descripcion.length > 0 && !consultaGuardada && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded text-sm">
+                  <p className="text-blue-800">
+                    <strong>💡 Control de comisiones:</strong> Usa el botón "Referido" para controlar qué estudios generan comisión al médico.
+                  </p>
                 </div>
               )}
             </div>
@@ -1012,15 +1059,20 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   />
                 </div>
 
+                {/* ✅ NUEVO: Opción de pago múltiple */}
                 <div>
                   <label className="label">Forma de Pago</label>
                   <select
                     className="input-field"
                     value={formaPago}
                     onChange={(e) => {
-                      setFormaPago(e.target.value as FormaPago);
+                      const valor = e.target.value as FormaPago | 'multiple';
+                      setFormaPago(valor);
                       setNumeroTransferencia('');
                       setNumeroVoucher('');
+                      if (valor === 'multiple') {
+                        setShowModalPagosMultiples(true);
+                      }
                     }}
                     disabled={!!consultaGuardada}
                   >
@@ -1029,6 +1081,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                         <option value="efectivo_facturado">Efectivo Facturado (Depósito)</option>
                         <option value="tarjeta">Tarjeta Facturado</option>
                         <option value="transferencia">Transferencia Bancaria</option>
+                        <option value="multiple">💳 Pago Múltiple (Dividir)</option>
                       </>
                     ) : (
                       <>
@@ -1036,12 +1089,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                         <option value="tarjeta">Tarjeta</option>
                         <option value="transferencia">Transferencia Bancaria</option>
                         <option value="estado_cuenta">Estado de Cuenta</option>
+                        <option value="multiple">💳 Pago Múltiple (Dividir)</option>
                       </>
                     )}
                   </select>
                 </div>
 
-                {/* Campo para número de transferencia */}
                 {formaPago === 'transferencia' && (
                   <div>
                     <label className="label">Número de Transferencia *</label>
@@ -1057,7 +1110,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   </div>
                 )}
 
-                {/* Campo para número de voucher */}
                 {formaPago === 'tarjeta' && (
                   <div>
                     <label className="label">
@@ -1089,19 +1141,46 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                     disabled={!!consultaGuardada}
                   />
                 </div>
+
+                {/* ✅ NUEVO: Vista previa de pagos múltiples */}
+                {formaPago === 'multiple' && pagosMultiples.length > 0 && (
+                  <div className="bg-purple-50 border border-purple-200 rounded p-3">
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="font-semibold text-purple-800">💳 Pagos Configurados</h4>
+                      <button
+                        onClick={() => setShowModalPagosMultiples(true)}
+                        className="text-xs text-purple-600 hover:text-purple-800"
+                        disabled={!!consultaGuardada}
+                      >
+                        Editar
+                      </button>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      {pagosMultiples.map((pago, idx) => (
+                        <div key={idx} className="flex justify-between">
+                          <span className="capitalize">{pago.forma_pago.replace('_', ' ')}:</span>
+                          <span className="font-medium">Q {pago.monto.toFixed(2)}</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between border-t pt-1 font-bold">
+                        <span>Total:</span>
+                        <span>Q {pagosMultiples.reduce((sum, p) => sum + p.monto, 0).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* ✅ Totales - ACTUALIZADO */}
-            <div className="card bg-blue-50">
-              <h3 className="text-lg font-semibold mb-3">Totales</h3>
+            {/* Totales */}
+            <div className="card bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-300">
+              <h3 className="text-lg font-semibold mb-3 text-blue-800">💰 Totales</h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span>Sub-Total Estudios:</span>
                   <span className="font-semibold">Q {totales.subTotal.toFixed(2)}</span>
                 </div>
                 
-                {/* Mostrar extras de móvil si aplica */}
                 {esServicioMovil && totales.extrasMovil > 0 && (
                   <div className="flex justify-between text-orange-700">
                     <span>Extras Móvil:</span>
@@ -1121,14 +1200,14 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   <span>Impuesto:</span>
                   <span className="font-semibold">Q {totales.impuesto.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-lg border-t pt-2 mt-2">
+                <div className="flex justify-between text-lg border-t-2 border-blue-400 pt-2 mt-2">
                   <span className="font-bold">Total Ventas:</span>
                   <span className="font-bold text-blue-700">Q {totales.total.toFixed(2)}</span>
                 </div>
               </div>
             </div>
 
-            {/* ✅ Botones de acción - ACTUALIZADOS */}
+            {/* Botones de acción */}
             <div className="space-y-3">
               <button
                 onClick={handleLimpiar}
@@ -1137,7 +1216,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 🗑️ Limpiar
               </button>
               
-              {/* ✅ Nuevo botón Guardar */}
               <button
                 onClick={handleGuardar}
                 className={`w-full font-semibold py-3 px-4 rounded-lg transition-all ${
@@ -1152,7 +1230,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 {guardando ? '⏳ Guardando...' : consultaGuardada ? '✅ Consulta Guardada' : '💾 Guardar Consulta'}
               </button>
               
-              {/* ✅ Botón Imprimir modificado */}
               <button
                 onClick={handleImprimir}
                 className={`w-full font-semibold py-3 px-4 rounded-lg transition-all ${
@@ -1187,6 +1264,136 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         onClose={() => setShowNuevoModal(false)}
         onSave={handleGuardarPaciente}
       />
+
+      {/* ✅ NUEVO: Modal de pagos múltiples */}
+      {showModalPagosMultiples && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">💳 Configurar Pagos Múltiples</h2>
+              <button
+                onClick={() => setShowModalPagosMultiples(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-4">
+              <p className="text-sm text-blue-800">
+                <strong>Total a pagar:</strong> Q {totales.total.toFixed(2)}
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                La suma de todos los pagos debe coincidir con el total
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {pagosMultiples.map((pago, index) => (
+                <div key={index} className="border-2 border-gray-200 rounded p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-semibold">Pago #{index + 1}</h4>
+                    {pagosMultiples.length > 1 && (
+                      <button
+                        onClick={() => eliminarPago(index)}
+                        className="text-red-600 hover:text-red-800 text-sm"
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Forma de Pago</label>
+                      <select
+                        className="input-field"
+                        value={pago.forma_pago}
+                        onChange={(e) => actualizarPago(index, 'forma_pago', e.target.value)}
+                      >
+                        <option value="efectivo">Efectivo</option>
+                        <option value="tarjeta">Tarjeta</option>
+                        <option value="transferencia">Transferencia</option>
+                        <option value="depositado">Depositado</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="label">Monto (Q)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="input-field"
+                        value={pago.monto}
+                        onChange={(e) => actualizarPago(index, 'monto', parseFloat(e.target.value) || 0)}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+
+                  {pago.forma_pago === 'transferencia' && (
+                    <div className="mt-3">
+                      <label className="label">Número de Referencia *</label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        value={pago.numero_referencia || ''}
+                        onChange={(e) => actualizarPago(index, 'numero_referencia', e.target.value)}
+                        placeholder="Número de transferencia"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={agregarPago}
+              className="mt-4 w-full btn-secondary flex items-center justify-center gap-2"
+            >
+              <Plus size={18} />
+              Agregar Otro Pago
+            </button>
+
+            <div className="mt-4 p-3 bg-gray-100 rounded">
+              <div className="flex justify-between font-semibold">
+                <span>Total configurado:</span>
+                <span className={
+                  Math.abs(pagosMultiples.reduce((sum, p) => sum + p.monto, 0) - totales.total) < 0.01
+                    ? 'text-green-600'
+                    : 'text-red-600'
+                }>
+                  Q {pagosMultiples.reduce((sum, p) => sum + p.monto, 0).toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end mt-6">
+              <button
+                onClick={() => {
+                  setShowModalPagosMultiples(false);
+                  setFormaPago('efectivo');
+                  setPagosMultiples([{ forma_pago: 'efectivo', monto: 0 }]);
+                }}
+                className="btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (validarPagosMultiples()) {
+                    setShowModalPagosMultiples(false);
+                  }
+                }}
+                className="btn-primary"
+              >
+                Confirmar Pagos
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

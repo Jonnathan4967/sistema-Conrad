@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Save, Plus, Trash2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Save, Plus, Trash2, X, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Users, FileText, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { generarCuadreExcel } from '../utils/cuadre-excel-generator';
@@ -34,24 +34,20 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const [consultasAnuladas, setConsultasAnuladas] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   
-  // Estados para cuadre de móviles
   const [cuadreMoviles, setCuadreMoviles] = useState<CuadreDiario | null>(null);
   const [detallesMoviles, setDetallesMoviles] = useState<any[]>([]);
   
-  // Estados para cuadre de caja
   const [efectivoContado, setEfectivoContado] = useState('');
   const [tarjetaContado, setTarjetaContado] = useState('');
   const [transferenciaContado, setTransferenciaContado] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [mostrarCuadre, setMostrarCuadre] = useState(false);
   
-  // Estados para gastos
   const [gastos, setGastos] = useState<any[]>([]);
   const [showModalGasto, setShowModalGasto] = useState(false);
   const [conceptoGasto, setConceptoGasto] = useState('');
   const [montoGasto, setMontoGasto] = useState('');
 
-  // ✅ NUEVO: Estados para colapsar secciones
   const [mostrarDetallesMoviles, setMostrarDetallesMoviles] = useState(false);
   const [mostrarDetallesRegulares, setMostrarDetallesRegulares] = useState(false);
   const [mostrarGastos, setMostrarGastos] = useState(true);
@@ -379,7 +375,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       tarjeta: 'Tarjeta',
       transferencia: 'Transferencia',
       efectivo_facturado: 'Depósito',
-      estado_cuenta: 'Estado de Cuenta'
+      estado_cuenta: 'Estado de Cuenta',
+      multiple: 'Múltiple'
     };
     return formas[forma] || forma;
   };
@@ -406,146 +403,212 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                          Math.abs(diferenciaDepositado) < 0.01 &&
                          Math.abs(diferenciaTarjeta) < 0.01;
 
+  // Calcular ticket promedio
+  const ticketPromedio = cuadre && cuadre.total_consultas > 0 
+    ? cuadre.total_ventas / cuadre.total_consultas 
+    : 0;
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-gradient-to-r from-green-600 to-green-700 text-white shadow-lg">
-        <div className="container mx-auto px-4 py-6">
-          <button onClick={onBack} className="flex items-center gap-2 text-white hover:text-green-100 mb-4 transition-colors">
+      {/* Header */}
+      <div className="bg-white shadow-sm border-b">
+        <div className="container mx-auto px-4 py-4">
+          <button 
+            onClick={onBack} 
+            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-3 transition-colors"
+          >
             <ArrowLeft size={20} />
-            Volver
+            <span className="font-medium">Volver</span>
           </button>
-          <h1 className="text-3xl font-bold">Cuadre Diario</h1>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Cuadre Diario</h1>
+              <p className="text-gray-500 text-sm mt-1">Control de caja y operaciones del día</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+                <div className="flex items-center gap-2">
+                  <Calendar size={16} className="text-blue-600" />
+                  <span className="text-sm font-medium text-gray-700">
+                    {format(new Date(fecha + 'T12:00:00'), 'dd/MM/yyyy')}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </header>
+      </div>
 
       <div className="container mx-auto p-4 max-w-7xl">
-        {/* ✅ MEJORADO: Selector de fecha más compacto */}
-        <div className="card mb-4">
-          <div className="flex items-center justify-between">
+        {/* Selector de Fecha y Botón Cuadrar */}
+        <div className="bg-white rounded-lg shadow-sm p-4 mb-6 border border-gray-200">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-3">
-              <Calendar className="text-blue-600" size={20} />
+              <label className="text-sm font-medium text-gray-700">Fecha:</label>
               <input
                 type="date"
-                className="input-field"
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
               />
             </div>
             <button
               onClick={() => setMostrarCuadre(!mostrarCuadre)}
-              className="btn-primary flex items-center gap-2"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors"
             >
-              <DollarSign size={20} />
-              {mostrarCuadre ? 'Ocultar' : 'Cuadrar'} Caja
+              <DollarSign size={18} />
+              {mostrarCuadre ? 'Ocultar' : 'Realizar'} Cuadre
             </button>
           </div>
         </div>
 
         {loading ? (
-          <div className="text-center py-12">
-            <p className="text-lg text-gray-600">Cargando...</p>
+          <div className="text-center py-16">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-300 border-t-blue-600"></div>
+            <p className="text-gray-600 mt-4">Cargando información...</p>
           </div>
         ) : (
           <>
-            {/* ✅ MEJORADO: Resumen compacto en una sola fila */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
-                <div className="text-sm text-gray-600">Total Consultas</div>
-                <div className="text-2xl font-bold text-blue-700">{cuadre?.total_consultas || 0}</div>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
-                <div className="text-sm text-gray-600">Total Ventas</div>
-                <div className="text-2xl font-bold text-green-700">Q {cuadre?.total_ventas.toFixed(2) || '0.00'}</div>
-              </div>
-              {cuadreMoviles && cuadreMoviles.total_consultas > 0 && (
-                <>
-                  <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
-                    <div className="text-sm text-gray-600">📱 Móviles</div>
-                    <div className="text-2xl font-bold text-orange-700">{cuadreMoviles.total_consultas}</div>
+            {/* Tarjetas de Resumen */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              {/* Consultas */}
+              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="bg-blue-100 p-2 rounded-lg">
+                    <Users size={20} className="text-blue-600" />
                   </div>
-                  <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
-                    <div className="text-sm text-gray-600">Ventas Móviles</div>
-                    <div className="text-2xl font-bold text-orange-700">Q {cuadreMoviles.total_ventas.toFixed(2)}</div>
+                  <span className="text-xs font-medium text-gray-500 uppercase">Consultas</span>
+                </div>
+                <div className="text-3xl font-bold text-gray-900">{cuadre?.total_consultas || 0}</div>
+                <div className="text-sm text-gray-500 mt-1">Pacientes atendidos</div>
+              </div>
+
+              {/* Total Ventas */}
+              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="bg-green-100 p-2 rounded-lg">
+                    <DollarSign size={20} className="text-green-600" />
                   </div>
-                </>
-              )}
+                  <span className="text-xs font-medium text-gray-500 uppercase">Ingresos</span>
+                </div>
+                <div className="text-3xl font-bold text-gray-900">Q {cuadre?.total_ventas.toFixed(2) || '0.00'}</div>
+                <div className="text-sm text-gray-500 mt-1">Total del día</div>
+              </div>
+
+              {/* Ticket Promedio */}
+              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="bg-purple-100 p-2 rounded-lg">
+                    <TrendingUp size={20} className="text-purple-600" />
+                  </div>
+                  <span className="text-xs font-medium text-gray-500 uppercase">Promedio</span>
+                </div>
+                <div className="text-3xl font-bold text-gray-900">Q {ticketPromedio.toFixed(2)}</div>
+                <div className="text-sm text-gray-500 mt-1">Por consulta</div>
+              </div>
+
+              {/* Gastos */}
+              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="bg-red-100 p-2 rounded-lg">
+                    <TrendingDown size={20} className="text-red-600" />
+                  </div>
+                  <span className="text-xs font-medium text-gray-500 uppercase">Gastos</span>
+                </div>
+                <div className="text-3xl font-bold text-gray-900">Q {totalGastos.toFixed(2)}</div>
+                <div className="text-sm text-gray-500 mt-1">{gastos.length} registro(s)</div>
+              </div>
             </div>
 
-            {/* ✅ MEJORADO: Formas de pago compactas */}
-            <div className="card mb-4">
-              <h3 className="text-lg font-semibold mb-3">Por Forma de Pago</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            {/* Desglose por Forma de Pago */}
+            <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+              <div className="flex items-center gap-2 mb-4">
+                <FileText size={20} className="text-gray-700" />
+                <h3 className="text-lg font-semibold text-gray-900">Desglose por Forma de Pago</h3>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 {cuadre?.cuadres_forma_pago.map(c => (
-                  <div key={c.forma_pago} className="bg-gray-50 rounded p-3">
-                    <div className="text-xs text-gray-600 mb-1">{getFormaPagoNombre(c.forma_pago)}</div>
-                    <div className="text-lg font-bold text-blue-600">Q {c.total.toFixed(2)}</div>
-                    <div className="text-xs text-gray-500">{c.cantidad} consulta(s)</div>
+                  <div key={c.forma_pago} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div className="text-xs text-gray-500 mb-2 font-medium uppercase">{getFormaPagoNombre(c.forma_pago)}</div>
+                    <div className="text-2xl font-bold text-gray-900">Q {c.total.toFixed(2)}</div>
+                    <div className="text-xs text-gray-500 mt-2">{c.cantidad} consulta(s)</div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* ✅ NUEVO: Sección colapsable de móviles */}
+            {/* Servicios Móviles */}
             {cuadreMoviles && cuadreMoviles.total_consultas > 0 && (
-              <div className="card mb-4 bg-orange-50 border border-orange-200">
+              <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
                 <button
                   onClick={() => setMostrarDetallesMoviles(!mostrarDetallesMoviles)}
                   className="w-full flex items-center justify-between"
                 >
-                  <h3 className="text-lg font-semibold text-orange-800">
-                    📱 Servicios Móviles - Desglose por Forma de Pago
-                  </h3>
-                  {mostrarDetallesMoviles ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                  <div className="flex items-center gap-2">
+                    <div className="bg-orange-100 p-2 rounded-lg">
+                      <span className="text-lg">📱</span>
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-lg font-semibold text-gray-900">Servicios Móviles</h3>
+                      <p className="text-sm text-gray-500">{cuadreMoviles.total_consultas} consultas - Q {cuadreMoviles.total_ventas.toFixed(2)}</p>
+                    </div>
+                  </div>
+                  {mostrarDetallesMoviles ? <ChevronUp size={20} className="text-gray-400" /> : <ChevronDown size={20} className="text-gray-400" />}
                 </button>
                 
                 {mostrarDetallesMoviles && (
-                  <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {cuadreMoviles.cuadres_forma_pago.map(c => (
-                      <div key={c.forma_pago} className="bg-white rounded p-3">
-                        <div className="text-xs text-gray-600 mb-1">{getFormaPagoNombre(c.forma_pago)}</div>
-                        <div className="text-lg font-bold text-orange-600">Q {c.total.toFixed(2)}</div>
-                        <div className="text-xs text-gray-500">{c.cantidad} consulta(s)</div>
-                      </div>
-                    ))}
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      {cuadreMoviles.cuadres_forma_pago.map(c => (
+                        <div key={c.forma_pago} className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                          <div className="text-xs text-gray-600 mb-2 font-medium uppercase">{getFormaPagoNombre(c.forma_pago)}</div>
+                          <div className="text-xl font-bold text-gray-900">Q {c.total.toFixed(2)}</div>
+                          <div className="text-xs text-gray-500 mt-1">{c.cantidad} consulta(s)</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
             )}
 
-            {/* ✅ MEJORADO: Gastos colapsables */}
-            <div className="card mb-4">
-              <button
-                onClick={() => setMostrarGastos(!mostrarGastos)}
-                className="w-full flex items-center justify-between mb-3"
-              >
-                <h3 className="text-lg font-semibold">
-                  Gastos del Día {gastos.length > 0 && `(${gastos.length})`}
-                </h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowModalGasto(true);
-                    }}
-                    className="btn-primary flex items-center gap-2 text-sm"
-                  >
-                    <Plus size={16} />
-                    Agregar
-                  </button>
-                  {mostrarGastos ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                </div>
-              </button>
+            {/* Gastos del Día */}
+            <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <button
+                  onClick={() => setMostrarGastos(!mostrarGastos)}
+                  className="flex items-center gap-2"
+                >
+                  <TrendingDown size={20} className="text-red-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Gastos del Día</h3>
+                  {gastos.length > 0 && (
+                    <span className="bg-red-100 text-red-700 text-xs font-medium px-2 py-1 rounded-full">
+                      {gastos.length}
+                    </span>
+                  )}
+                  {mostrarGastos ? <ChevronUp size={16} className="text-gray-400 ml-1" /> : <ChevronDown size={16} className="text-gray-400 ml-1" />}
+                </button>
+                <button
+                  onClick={() => setShowModalGasto(true)}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                >
+                  <Plus size={16} />
+                  Agregar
+                </button>
+              </div>
 
               {mostrarGastos && (
                 gastos.length === 0 ? (
-                  <p className="text-gray-500 text-center py-4">No hay gastos registrados</p>
+                  <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-gray-500">No hay gastos registrados hoy</p>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {gastos.map(gasto => (
-                      <div key={gasto.id} className="flex justify-between items-center p-3 bg-red-50 border border-red-200 rounded">
+                      <div key={gasto.id} className="flex justify-between items-center p-3 bg-red-50 border border-red-100 rounded-lg">
                         <div className="flex-1">
-                          <div className="font-medium">{gasto.concepto}</div>
-                          <div className="text-xs text-gray-600">
+                          <div className="font-medium text-gray-900">{gasto.concepto}</div>
+                          <div className="text-xs text-gray-500 mt-1">
                             {(() => {
                               const fecha = new Date(gasto.created_at);
                               const horaGT = new Date(fecha.getTime() - (6 * 60 * 60 * 1000));
@@ -563,7 +626,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           </div>
                           <button
                             onClick={() => eliminarGasto(gasto.id)}
-                            className="text-red-600 hover:text-red-800"
+                            className="text-red-600 hover:bg-red-100 p-2 rounded transition-colors"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -571,9 +634,9 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                       </div>
                     ))}
                     {gastos.length > 0 && (
-                      <div className="flex justify-between items-center p-3 bg-red-100 border-2 border-red-400 rounded font-bold">
-                        <span>Total Gastos:</span>
-                        <span className="text-red-700">- Q {totalGastos.toFixed(2)}</span>
+                      <div className="flex justify-between items-center p-4 bg-red-100 border border-red-300 rounded-lg font-bold mt-3">
+                        <span className="text-gray-900">Total Gastos:</span>
+                        <span className="text-red-700 text-xl">- Q {totalGastos.toFixed(2)}</span>
                       </div>
                     )}
                   </div>
@@ -581,136 +644,174 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
               )}
             </div>
 
-            {/* ✅ Cuadre de caja */}
+            {/* Cuadre de Caja */}
             {mostrarCuadre && cuadre && cuadre.total_consultas > 0 && (
-              <div className="card mb-4 bg-yellow-50 border-2 border-yellow-300">
-                <div className="flex items-center gap-3 mb-4">
-                  <DollarSign className="text-yellow-600" size={24} />
-                  <h3 className="text-xl font-bold">Cuadre de Caja</h3>
+              <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
+                <div className="flex items-center gap-2 mb-6">
+                  <div className="bg-yellow-100 p-2 rounded-lg">
+                    <DollarSign size={24} className="text-yellow-700" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-900">Cuadre de Caja</h3>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4 mb-4">
-                  <div className="bg-white p-4 rounded-lg">
-                    <label className="label">💵 Efectivo</label>
-                    <div className="text-sm text-gray-600 mb-2">Esperado: Q {efectivoEsperado.toFixed(2)}</div>
+                <div className="grid md:grid-cols-3 gap-6 mb-6">
+                  {/* Efectivo */}
+                  <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                      💵 Efectivo
+                    </label>
+                    <div className="bg-white p-3 rounded-lg border border-gray-200 mb-3">
+                      <span className="text-xs text-gray-500">Esperado:</span>
+                      <div className="text-xl font-bold text-gray-900">Q {efectivoEsperado.toFixed(2)}</div>
+                    </div>
                     <input
                       type="number"
                       step="0.01"
-                      className="input-field"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       value={efectivoContado}
                       onChange={(e) => setEfectivoContado(e.target.value)}
-                      placeholder="0.00"
+                      placeholder="Ingrese monto contado"
                     />
                     {efectivoContado && (
-                      <div className={`mt-2 text-sm font-semibold ${
-                        Math.abs(diferenciaEfectivo) < 0.01 ? 'text-green-600' : 'text-red-600'
+                      <div className={`mt-3 p-2 rounded-lg text-center text-sm font-semibold ${
+                        Math.abs(diferenciaEfectivo) < 0.01 
+                          ? 'bg-green-100 text-green-700' 
+                          : 'bg-red-100 text-red-700'
                       }`}>
-                        {Math.abs(diferenciaEfectivo) < 0.01 ? '✓' : '✗'} Dif: Q {diferenciaEfectivo.toFixed(2)}
+                        {Math.abs(diferenciaEfectivo) < 0.01 ? '✓ Correcto' : `Diferencia: Q ${diferenciaEfectivo.toFixed(2)}`}
                       </div>
                     )}
                   </div>
 
-                  <div className="bg-white p-4 rounded-lg">
-                    <label className="label">💳 Tarjeta</label>
-                    <div className="text-sm text-gray-600 mb-2">Esperado: Q {tarjetaEsperada.toFixed(2)}</div>
+                  {/* Tarjeta */}
+                  <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                      💳 Tarjeta
+                    </label>
+                    <div className="bg-white p-3 rounded-lg border border-gray-200 mb-3">
+                      <span className="text-xs text-gray-500">Esperado:</span>
+                      <div className="text-xl font-bold text-gray-900">Q {tarjetaEsperada.toFixed(2)}</div>
+                    </div>
                     <input
                       type="number"
                       step="0.01"
-                      className="input-field"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       value={tarjetaContado}
                       onChange={(e) => setTarjetaContado(e.target.value)}
-                      placeholder="0.00"
+                      placeholder="Ingrese monto contado"
                     />
                     {tarjetaContado && (
-                      <div className={`mt-2 text-sm font-semibold ${
-                        Math.abs(diferenciaTarjeta) < 0.01 ? 'text-green-600' : 'text-red-600'
+                      <div className={`mt-3 p-2 rounded-lg text-center text-sm font-semibold ${
+                        Math.abs(diferenciaTarjeta) < 0.01 
+                          ? 'bg-green-100 text-green-700' 
+                          : 'bg-red-100 text-red-700'
                       }`}>
-                        {Math.abs(diferenciaTarjeta) < 0.01 ? '✓' : '✗'} Dif: Q {diferenciaTarjeta.toFixed(2)}
+                        {Math.abs(diferenciaTarjeta) < 0.01 ? '✓ Correcto' : `Diferencia: Q ${diferenciaTarjeta.toFixed(2)}`}
                       </div>
                     )}
                   </div>
 
-                  <div className="bg-white p-4 rounded-lg">
-                    <label className="label">💰 Depositado</label>
-                    <div className="text-sm text-gray-600 mb-2">Esperado: Q {depositadoEsperado.toFixed(2)}</div>
+                  {/* Depositado */}
+                  <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                      🏦 Depositado
+                    </label>
+                    <div className="bg-white p-3 rounded-lg border border-gray-200 mb-3">
+                      <span className="text-xs text-gray-500">Esperado:</span>
+                      <div className="text-xl font-bold text-gray-900">Q {depositadoEsperado.toFixed(2)}</div>
+                    </div>
                     <input
                       type="number"
                       step="0.01"
-                      className="input-field"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       value={transferenciaContado}
                       onChange={(e) => setTransferenciaContado(e.target.value)}
-                      placeholder="0.00"
+                      placeholder="Ingrese monto contado"
                     />
                     {transferenciaContado && (
-                      <div className={`mt-2 text-sm font-semibold ${
-                        Math.abs(diferenciaDepositado) < 0.01 ? 'text-green-600' : 'text-red-600'
+                      <div className={`mt-3 p-2 rounded-lg text-center text-sm font-semibold ${
+                        Math.abs(diferenciaDepositado) < 0.01 
+                          ? 'bg-green-100 text-green-700' 
+                          : 'bg-red-100 text-red-700'
                       }`}>
-                        {Math.abs(diferenciaDepositado) < 0.01 ? '✓' : '✗'} Dif: Q {diferenciaDepositado.toFixed(2)}
+                        {Math.abs(diferenciaDepositado) < 0.01 ? '✓ Correcto' : `Diferencia: Q ${diferenciaDepositado.toFixed(2)}`}
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="mb-4">
-                  <label className="label">Observaciones</label>
+                {/* Observaciones */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Observaciones</label>
                   <textarea
-                    className="input-field"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     value={observaciones}
                     onChange={(e) => setObservaciones(e.target.value)}
-                    placeholder="Notas sobre el cuadre..."
-                    rows={2}
+                    placeholder="Notas sobre el cuadre del día..."
+                    rows={3}
                   />
                 </div>
 
+                {/* Resultado y Botón */}
                 {efectivoContado !== '' && tarjetaContado !== '' && transferenciaContado !== '' && (
                   <>
-                    <div className={`p-3 rounded-lg text-center mb-4 ${
-                      cuadreCorrecto ? 'bg-green-100 border border-green-500' : 'bg-red-100 border border-red-500'
+                    <div className={`p-5 rounded-lg text-center mb-6 border-2 ${
+                      cuadreCorrecto 
+                        ? 'bg-green-50 border-green-500' 
+                        : 'bg-yellow-50 border-yellow-500'
                     }`}>
                       {cuadreCorrecto ? (
-                        <div className="flex items-center justify-center gap-2 text-green-700 font-bold">
-                          <CheckCircle2 size={24} />
-                          <span>¡Cuadre Correcto!</span>
+                        <div className="flex items-center justify-center gap-3">
+                          <CheckCircle2 size={28} className="text-green-600" />
+                          <span className="text-xl font-bold text-green-700">¡Cuadre Correcto!</span>
                         </div>
                       ) : (
-                        <div className="text-red-700 font-bold">⚠️ Cuadre con Diferencias</div>
+                        <div>
+                          <div className="text-xl font-bold text-yellow-700 mb-1">⚠️ Cuadre con Diferencias</div>
+                          <p className="text-sm text-yellow-600">Revisa los montos ingresados</p>
+                        </div>
                       )}
                     </div>
 
                     <button
                       onClick={() => descargarCuadre('csv')}
-                      className="btn-primary w-full flex items-center justify-center gap-2"
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg font-semibold flex items-center justify-center gap-2 transition-colors"
                     >
                       <Save size={20} />
-                      📊 Descargar Excel
+                      Descargar Reporte Excel
                     </button>
                   </>
                 )}
               </div>
             )}
 
-            {/* ✅ NUEVO: Consultas anuladas colapsables */}
+            {/* Consultas Anuladas */}
             {consultasAnuladas.length > 0 && (
-              <div className="card border-2 border-red-500">
+              <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
                 <button
                   onClick={() => setMostrarAnuladas(!mostrarAnuladas)}
                   className="w-full flex items-center justify-between"
                 >
-                  <h3 className="text-lg font-semibold text-red-700">
-                    🚫 Consultas Anuladas ({consultasAnuladas.length})
-                  </h3>
-                  {mostrarAnuladas ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                  <div className="flex items-center gap-2">
+                    <div className="bg-red-100 p-2 rounded-lg">
+                      <X size={20} className="text-red-600" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Consultas Anuladas ({consultasAnuladas.length})
+                    </h3>
+                  </div>
+                  {mostrarAnuladas ? <ChevronUp size={20} className="text-gray-400" /> : <ChevronDown size={20} className="text-gray-400" />}
                 </button>
                 
                 {mostrarAnuladas && (
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
                     {consultasAnuladas.map((anulada, index) => (
-                      <div key={index} className="bg-red-50 p-3 rounded border border-red-200">
+                      <div key={index} className="bg-red-50 p-4 rounded-lg border border-red-200">
                         <div className="flex justify-between">
                           <div>
-                            <div className="font-semibold">{anulada.nombre}</div>
-                            <div className="text-sm text-gray-600">{anulada.motivo_anulacion}</div>
-                            <div className="text-xs text-gray-500">Por: {anulada.usuario_anulo}</div>
+                            <div className="font-semibold text-gray-900">{anulada.nombre}</div>
+                            <div className="text-sm text-gray-600 mt-1">{anulada.motivo_anulacion}</div>
+                            <div className="text-xs text-gray-500 mt-1">Anulado por: {anulada.usuario_anulo}</div>
                           </div>
                           <div className="text-lg font-bold text-red-600">
                             Q {anulada.total.toFixed(2)}
@@ -730,15 +831,15 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       {showModalGasto && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Agregar Gasto</h2>
+            <div className="flex justify-between items-center mb-5">
+              <h2 className="text-xl font-bold text-gray-900">Agregar Gasto</h2>
               <button
                 onClick={() => {
                   setShowModalGasto(false);
                   setConceptoGasto('');
                   setMontoGasto('');
                 }}
-                className="text-gray-500 hover:text-gray-700"
+                className="text-gray-400 hover:text-gray-600"
               >
                 <X size={24} />
               </button>
@@ -746,21 +847,21 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
             <div className="space-y-4">
               <div>
-                <label className="label">Concepto *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Concepto *</label>
                 <input
                   type="text"
-                  className="input-field"
-                  placeholder="Ej: Diesel"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Ej: Diesel, Papelería, Mantenimiento"
                   value={conceptoGasto}
                   onChange={(e) => setConceptoGasto(e.target.value)}
                 />
               </div>
 
               <div>
-                <label className="label">Monto (Q) *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Monto (Q) *</label>
                 <input
                   type="number"
-                  className="input-field"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="0.00"
                   step="0.01"
                   value={montoGasto}
@@ -776,12 +877,15 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   setConceptoGasto('');
                   setMontoGasto('');
                 }}
-                className="btn-secondary"
+                className="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors"
               >
                 Cancelar
               </button>
-              <button onClick={agregarGasto} className="btn-primary">
-                Guardar
+              <button 
+                onClick={agregarGasto} 
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Guardar Gasto
               </button>
             </div>
           </div>
