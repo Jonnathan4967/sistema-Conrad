@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Save, Plus, Trash2, X, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Users, FileText, Clock } from 'lucide-react';
+import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Plus, Trash2, X, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { generarCuadreExcel } from '../utils/cuadre-excel-generator';
@@ -30,32 +30,68 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
   const [fecha, setFecha] = useState(getFechaGuatemala());
   const [cuadre, setCuadre] = useState<CuadreDiario | null>(null);
-  const [detalles, setDetalles] = useState<any[]>([]);
-  const [consultasAnuladas, setConsultasAnuladas] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   
-  const [cuadreMoviles, setCuadreMoviles] = useState<CuadreDiario | null>(null);
-  const [detallesMoviles, setDetallesMoviles] = useState<any[]>([]);
-  
-  const [efectivoContado, setEfectivoContado] = useState('');
+  // Estados para conteo de billetes y monedas
+  const [billetes, setBilletes] = useState({
+    b200: '',
+    b100: '',
+    b50: '',
+    b20: '',
+    b10: '',
+    b5: '',
+    b1: ''
+  });
+
+  const [monedas, setMonedas] = useState({
+    m1: '',
+    m050: '',
+    m025: '',
+    m010: '',
+    m005: '',
+    m001: ''
+  });
+
   const [tarjetaContado, setTarjetaContado] = useState('');
   const [transferenciaContado, setTransferenciaContado] = useState('');
+  const [estadoCuentaContado, setEstadoCuentaContado] = useState(''); // ✅ NUEVO
   const [observaciones, setObservaciones] = useState('');
   const [mostrarCuadre, setMostrarCuadre] = useState(false);
+  
+  // Estados de validación y firma
+  const [cuadreValidado, setCuadreValidado] = useState(false);
+  const [mostrarEsperados, setMostrarEsperados] = useState(false);
+  const [pinCierre, setPinCierre] = useState('');
+  const [nombreCajero, setNombreCajero] = useState('');
+  const [cuadreCerrado, setCuadreCerrado] = useState(false);
   
   const [gastos, setGastos] = useState<any[]>([]);
   const [showModalGasto, setShowModalGasto] = useState(false);
   const [conceptoGasto, setConceptoGasto] = useState('');
   const [montoGasto, setMontoGasto] = useState('');
 
-  const [mostrarDetallesMoviles, setMostrarDetallesMoviles] = useState(false);
-  const [mostrarDetallesRegulares, setMostrarDetallesRegulares] = useState(false);
   const [mostrarGastos, setMostrarGastos] = useState(true);
   const [mostrarAnuladas, setMostrarAnuladas] = useState(false);
+  const [consultasAnuladas, setConsultasAnuladas] = useState<any[]>([]);
 
   useEffect(() => {
     cargarCuadre();
+    resetearCuadre();
   }, [fecha]);
+
+  const resetearCuadre = () => {
+    setBilletes({ b200: '', b100: '', b50: '', b20: '', b10: '', b5: '', b1: '' });
+    setMonedas({ m1: '', m050: '', m025: '', m010: '', m005: '', m001: '' });
+    setTarjetaContado('');
+    setTransferenciaContado('');
+    setEstadoCuentaContado(''); // ✅ NUEVO
+    setObservaciones('');
+    setCuadreValidado(false);
+    setMostrarEsperados(false);
+    setPinCierre('');
+    setNombreCajero('');
+    setCuadreCerrado(false);
+  };
 
   const cargarCuadre = async () => {
     setLoading(true);
@@ -75,10 +111,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         c.anulado !== true && c.es_servicio_movil !== true
       ) || [];
 
-      const consultasMoviles = consultas?.filter(c => 
-        c.anulado !== true && c.es_servicio_movil === true
-      ) || [];
-
       const consultasIds = consultas?.map(c => c.id) || [];
       
       if (consultasIds.length === 0) {
@@ -88,14 +120,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           total_ventas: 0,
           cuadres_forma_pago: []
         });
-        setCuadreMoviles({
-          fecha,
-          total_consultas: 0,
-          total_ventas: 0,
-          cuadres_forma_pago: []
-        });
-        setDetalles([]);
-        setDetallesMoviles([]);
+        setConsultasAnuladas([]);
         setLoading(false);
         return;
       }
@@ -110,9 +135,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       if (errorDetalles) throw errorDetalles;
 
-      // Calcular totales regulares
       const cuadrePorForma: { [key: string]: CuadrePorFormaPago } = {};
-      const consultasAnuladas = consultas?.filter(c => c.anulado === true) || [];
+      const consultasAnuladasData = consultas?.filter(c => c.anulado === true) || [];
       
       consultasRegulares.forEach(consulta => {
         const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
@@ -140,85 +164,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         cuadres_forma_pago: Object.values(cuadrePorForma)
       });
 
-      // Calcular totales móviles
-      const cuadreMovilesPorForma: { [key: string]: CuadrePorFormaPago } = {};
-      
-      consultasMoviles.forEach(consulta => {
-        const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
-        const totalRX = detallesConsulta.reduce((sum, d) => sum + d.precio, 0);
-        let totalExtras = 0;
-        if (consulta.movil_incluye_placas) totalExtras += consulta.movil_precio_placas || 0;
-        if (consulta.movil_incluye_informe) totalExtras += consulta.movil_precio_informe || 0;
-        
-        const totalConsulta = totalRX + totalExtras;
-        const formaPago = consulta.forma_pago;
-
-        if (!cuadreMovilesPorForma[formaPago]) {
-          cuadreMovilesPorForma[formaPago] = {
-            forma_pago: formaPago,
-            cantidad: 0,
-            total: 0
-          };
-        }
-
-        cuadreMovilesPorForma[formaPago].cantidad += 1;
-        cuadreMovilesPorForma[formaPago].total += totalConsulta;
-      });
-
-      const totalVentasMoviles = Object.values(cuadreMovilesPorForma).reduce((sum, c) => sum + c.total, 0);
-
-      setCuadreMoviles({
-        fecha,
-        total_consultas: consultasMoviles.length,
-        total_ventas: totalVentasMoviles,
-        cuadres_forma_pago: Object.values(cuadreMovilesPorForma)
-      });
-
-      const detallesConInfo = detallesData
-        ?.filter(d => {
-          const consulta = consultasRegulares.find(c => c.id === d.consulta_id);
-          return !!consulta;
-        })
-        .map(d => {
-          const consulta = consultasRegulares.find(c => c.id === d.consulta_id);
-          return {
-            ...d,
-            paciente: consulta?.pacientes?.nombre,
-            medico: consulta?.medicos?.nombre || 'Sin información',
-            forma_pago: consulta?.forma_pago,
-            tipo_cobro: consulta?.tipo_cobro,
-            numero_transferencia: consulta?.numero_transferencia,
-            numero_voucher: consulta?.numero_voucher
-          };
-        }) || [];
-      
-      setDetalles(detallesConInfo);
-
-      const detallesMovilesConInfo = consultasMoviles.map(consulta => {
-        const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
-        const totalRX = detallesConsulta.reduce((sum, d) => sum + d.precio, 0);
-        let totalExtras = 0;
-        if (consulta.movil_incluye_placas) totalExtras += consulta.movil_precio_placas || 0;
-        if (consulta.movil_incluye_informe) totalExtras += consulta.movil_precio_informe || 0;
-
-        return {
-          paciente: consulta.pacientes?.nombre,
-          establecimiento: consulta.movil_establecimiento,
-          estudios: detallesConsulta,
-          totalRX,
-          totalExtras,
-          total: totalRX + totalExtras,
-          forma_pago: consulta.forma_pago,
-          incluye_placas: consulta.movil_incluye_placas,
-          precio_placas: consulta.movil_precio_placas,
-          incluye_informe: consulta.movil_incluye_informe,
-          precio_informe: consulta.movil_precio_informe
-        };
-      });
-
-      setDetallesMoviles(detallesMovilesConInfo);
-      
-      setConsultasAnuladas(consultasAnuladas.map(c => ({
+      setConsultasAnuladas(consultasAnuladasData.map(c => ({
         nombre: c.pacientes?.nombre,
         usuario_anulo: c.usuario_anulo,
         fecha_anulacion: c.fecha_anulacion,
@@ -243,7 +189,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           categorias_gastos(nombre)
         `)
         .eq('fecha', fecha)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false});
       
       if (error) throw error;
       setGastos(data || []);
@@ -317,25 +263,113 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     }
   };
 
-  const descargarCuadre = async (formato: 'csv' | 'pdf') => {
-    if (!efectivoContado || efectivoContado === '' || !tarjetaContado || tarjetaContado === '' || !transferenciaContado || transferenciaContado === '') {
-      alert('Debe ingresar todos los montos contados');
+  const calcularTotalEfectivoContado = () => {
+    const totalBilletes = 
+      (parseFloat(billetes.b200) || 0) * 200 +
+      (parseFloat(billetes.b100) || 0) * 100 +
+      (parseFloat(billetes.b50) || 0) * 50 +
+      (parseFloat(billetes.b20) || 0) * 20 +
+      (parseFloat(billetes.b10) || 0) * 10 +
+      (parseFloat(billetes.b5) || 0) * 5 +
+      (parseFloat(billetes.b1) || 0) * 1;
+
+    const totalMonedas = 
+      (parseFloat(monedas.m1) || 0) * 1 +
+      (parseFloat(monedas.m050) || 0) * 0.50 +
+      (parseFloat(monedas.m025) || 0) * 0.25 +
+      (parseFloat(monedas.m010) || 0) * 0.10 +
+      (parseFloat(monedas.m005) || 0) * 0.05 +
+      (parseFloat(monedas.m001) || 0) * 0.01;
+
+    return totalBilletes + totalMonedas;
+  };
+
+  // ✅ ALERT SIMPLIFICADO - Sin mostrar diferencias
+  const validarCuadre = () => {
+    const efectivoContadoNum = calcularTotalEfectivoContado();
+    const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
+    const transferenciaContadoNum = parseFloat(transferenciaContado) || 0;
+    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0; // ✅ NUEVO
+
+    if (efectivoContadoNum === 0 && tarjetaContadoNum === 0 && transferenciaContadoNum === 0 && estadoCuentaContadoNum === 0) {
+      alert('⚠️ Debe ingresar al menos un monto para validar el cuadre');
       return;
     }
 
-    const efectivoContadoNum = parseFloat(efectivoContado);
-    const tarjetaContadoNum = parseFloat(tarjetaContado);
-    const depositadoContadoNum = parseFloat(transferenciaContado);
+    setMostrarEsperados(true);
+    setCuadreValidado(true);
+
+    const diferenciaEfec = Math.abs(efectivoContadoNum - efectivoEsperado);
+    const diferenciaTarj = Math.abs(tarjetaContadoNum - tarjetaEsperada);
+    const diferenciaTrans = Math.abs(transferenciaContadoNum - depositadoEsperado);
+    const diferenciaEstadoCta = Math.abs(estadoCuentaContadoNum - estadoCuentaEsperada); // ✅ NUEVO
+
+    const cuadra = diferenciaEfec < 0.01 && diferenciaTarj < 0.01 && diferenciaTrans < 0.01 && diferenciaEstadoCta < 0.01;
+
+    if (!cuadra) {
+      alert('⚠️ El cuadre NO coincide.');
+    } else {
+      alert('✅ ¡Cuadre correcto! Ahora puede confirmar el cierre.');
+    }
+  };
+
+  const confirmarCierre = async () => {
+    if (!nombreCajero.trim()) {
+      alert('⚠️ Debe ingresar el nombre del cajero');
+      return;
+    }
+
+    if (!pinCierre.trim()) {
+      alert('⚠️ Debe ingresar el PIN de autorización');
+      return;
+    }
+
+    const efectivoContadoNum = calcularTotalEfectivoContado();
+    const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
+    const transferenciaContadoNum = parseFloat(transferenciaContado) || 0;
+    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0; // ✅ NUEVO
 
     const diferencias = {
-      efectivo: calcularDiferencia(efectivoEsperado, efectivoContadoNum),
-      tarjeta: calcularDiferencia(tarjetaEsperada, tarjetaContadoNum),
-      depositado: calcularDiferencia(depositadoEsperado, depositadoContadoNum)
+      efectivo: efectivoContadoNum - efectivoEsperado,
+      tarjeta: tarjetaContadoNum - tarjetaEsperada,
+      depositado: transferenciaContadoNum - depositadoEsperado,
+      estado_cuenta: estadoCuentaContadoNum - estadoCuentaEsperada // ✅ NUEVO
     };
 
     const cuadreCorrecto = Math.abs(diferencias.efectivo) < 0.01 && 
                            Math.abs(diferencias.tarjeta) < 0.01 && 
-                           Math.abs(diferencias.depositado) < 0.01;
+                           Math.abs(diferencias.depositado) < 0.01 &&
+                           Math.abs(diferencias.estado_cuenta) < 0.01; // ✅ NUEVO
+
+    try {
+      setCuadreCerrado(true);
+      alert('✅ Cierre de caja confirmado exitosamente');
+      
+      await descargarCuadre('csv');
+      
+    } catch (error) {
+      console.error('Error al confirmar cierre:', error);
+      alert('❌ Error al confirmar el cierre de caja');
+    }
+  };
+
+  const descargarCuadre = async (formato: 'csv' | 'pdf') => {
+    const efectivoContadoNum = calcularTotalEfectivoContado();
+    const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
+    const depositadoContadoNum = parseFloat(transferenciaContado) || 0;
+    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0; // ✅ NUEVO
+
+    const diferencias = {
+      efectivo: calcularDiferencia(efectivoEsperado, efectivoContadoNum),
+      tarjeta: calcularDiferencia(tarjetaEsperada, tarjetaContadoNum),
+      depositado: calcularDiferencia(depositadoEsperado, depositadoContadoNum),
+      estado_cuenta: calcularDiferencia(estadoCuentaEsperada, estadoCuentaContadoNum) // ✅ NUEVO
+    };
+
+    const cuadreCorrecto = Math.abs(diferencias.efectivo) < 0.01 && 
+                           Math.abs(diferencias.tarjeta) < 0.01 && 
+                           Math.abs(diferencias.depositado) < 0.01 &&
+                           Math.abs(diferencias.estado_cuenta) < 0.01; // ✅ NUEVO
 
     const fechaFormateada = format(new Date(fecha + 'T12:00:00'), 'dd/MM/yyyy');
     const horaActual = format(new Date(), 'HH:mm');
@@ -355,17 +389,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         diferencias,
         cuadreCorrecto,
         observaciones,
+        cajero: nombreCajero,
         cuadresPorFormaPago: cuadre?.cuadres_forma_pago.map(c => ({
           forma_pago: getFormaPagoNombre(c.forma_pago),
           cantidad: c.cantidad,
           total: c.total
         })) || []
       });
-
-      alert(cuadreCorrecto ? 
-        `✅ Cuadre correcto! Archivo Excel descargado.` : 
-        `⚠️ Cuadre con diferencias. Archivo Excel descargado.`
-      );
     }
   };
 
@@ -390,23 +420,22 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const depositadoEsperado = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo_facturado')?.total || 0) +
                               (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'transferencia')?.total || 0);
   const tarjetaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'tarjeta')?.total || 0;
+  const estadoCuentaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'estado_cuenta')?.total || 0; // ✅ NUEVO
 
-  const efectivoContadoNum = parseFloat(efectivoContado) || 0;
+  const efectivoContadoNum = calcularTotalEfectivoContado();
   const depositadoContadoNum = parseFloat(transferenciaContado) || 0;
   const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
+  const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0; // ✅ NUEVO
 
   const diferenciaEfectivo = calcularDiferencia(efectivoEsperado, efectivoContadoNum);
   const diferenciaDepositado = calcularDiferencia(depositadoEsperado, depositadoContadoNum);
   const diferenciaTarjeta = calcularDiferencia(tarjetaEsperada, tarjetaContadoNum);
+  const diferenciaEstadoCuenta = calcularDiferencia(estadoCuentaEsperada, estadoCuentaContadoNum); // ✅ NUEVO
 
   const cuadreCorrecto = Math.abs(diferenciaEfectivo) < 0.01 && 
                          Math.abs(diferenciaDepositado) < 0.01 &&
-                         Math.abs(diferenciaTarjeta) < 0.01;
-
-  // Calcular ticket promedio
-  const ticketPromedio = cuadre && cuadre.total_consultas > 0 
-    ? cuadre.total_ventas / cuadre.total_consultas 
-    : 0;
+                         Math.abs(diferenciaTarjeta) < 0.01 &&
+                         Math.abs(diferenciaEstadoCuenta) < 0.01; // ✅ NUEVO
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -422,8 +451,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           </button>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Cuadre Diario</h1>
-              <p className="text-gray-500 text-sm mt-1">Control de caja y operaciones del día</p>
+              <h1 className="text-2xl font-bold text-gray-900">Cierre de Caja</h1>
+              <p className="text-gray-500 text-sm mt-1">Control y cuadre diario de operaciones</p>
             </div>
             <div className="flex items-center gap-3">
               <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
@@ -450,15 +479,24 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
+                disabled={cuadreCerrado}
               />
             </div>
-            <button
-              onClick={() => setMostrarCuadre(!mostrarCuadre)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors"
-            >
-              <DollarSign size={18} />
-              {mostrarCuadre ? 'Ocultar' : 'Realizar'} Cuadre
-            </button>
+            {!cuadreCerrado && (
+              <button
+                onClick={() => setMostrarCuadre(!mostrarCuadre)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors"
+              >
+                <DollarSign size={18} />
+                {mostrarCuadre ? 'Ocultar' : 'Cuadrar Caja'}
+              </button>
+            )}
+            {cuadreCerrado && (
+              <div className="bg-green-100 text-green-700 px-4 py-2 rounded-lg font-medium flex items-center gap-2">
+                <CheckCircle2 size={18} />
+                Caja Cerrada
+              </div>
+            )}
           </div>
         </div>
 
@@ -469,104 +507,353 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           </div>
         ) : (
           <>
-            {/* Tarjetas de Resumen */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              {/* Consultas */}
-              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="bg-blue-100 p-2 rounded-lg">
-                    <Users size={20} className="text-blue-600" />
+            {/* ✅ FORMULARIO DE CUADRE ARRIBA */}
+            {mostrarCuadre && cuadre && cuadre.total_consultas > 0 && !cuadreCerrado && (
+              <div className="bg-white rounded-lg shadow-lg p-6 mb-6 border-2 border-blue-500">
+                <div className="flex items-center gap-3 mb-6 pb-4 border-b">
+                  <div className="bg-blue-100 p-3 rounded-lg">
+                    <DollarSign size={28} className="text-blue-700" />
                   </div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">Consultas</span>
+                  <div>
+                    <h3 className="text-2xl font-bold text-gray-900">Cierre de Caja</h3>
+                    <p className="text-sm text-gray-600 mt-1">Cuenta el dinero físicamente e ingresa las cantidades</p>
+                  </div>
                 </div>
-                <div className="text-3xl font-bold text-gray-900">{cuadre?.total_consultas || 0}</div>
-                <div className="text-sm text-gray-500 mt-1">Pacientes atendidos</div>
-              </div>
 
-              {/* Total Ventas */}
-              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="bg-green-100 p-2 rounded-lg">
-                    <DollarSign size={20} className="text-green-600" />
-                  </div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">Ingresos</span>
-                </div>
-                <div className="text-3xl font-bold text-gray-900">Q {cuadre?.total_ventas.toFixed(2) || '0.00'}</div>
-                <div className="text-sm text-gray-500 mt-1">Total del día</div>
-              </div>
-
-              {/* Ticket Promedio */}
-              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="bg-purple-100 p-2 rounded-lg">
-                    <TrendingUp size={20} className="text-purple-600" />
-                  </div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">Promedio</span>
-                </div>
-                <div className="text-3xl font-bold text-gray-900">Q {ticketPromedio.toFixed(2)}</div>
-                <div className="text-sm text-gray-500 mt-1">Por consulta</div>
-              </div>
-
-              {/* Gastos */}
-              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="bg-red-100 p-2 rounded-lg">
-                    <TrendingDown size={20} className="text-red-600" />
-                  </div>
-                  <span className="text-xs font-medium text-gray-500 uppercase">Gastos</span>
-                </div>
-                <div className="text-3xl font-bold text-gray-900">Q {totalGastos.toFixed(2)}</div>
-                <div className="text-sm text-gray-500 mt-1">{gastos.length} registro(s)</div>
-              </div>
-            </div>
-
-            {/* Desglose por Forma de Pago */}
-            <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
-              <div className="flex items-center gap-2 mb-4">
-                <FileText size={20} className="text-gray-700" />
-                <h3 className="text-lg font-semibold text-gray-900">Desglose por Forma de Pago</h3>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                {cuadre?.cuadres_forma_pago.map(c => (
-                  <div key={c.forma_pago} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <div className="text-xs text-gray-500 mb-2 font-medium uppercase">{getFormaPagoNombre(c.forma_pago)}</div>
-                    <div className="text-2xl font-bold text-gray-900">Q {c.total.toFixed(2)}</div>
-                    <div className="text-xs text-gray-500 mt-2">{c.cantidad} consulta(s)</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Servicios Móviles */}
-            {cuadreMoviles && cuadreMoviles.total_consultas > 0 && (
-              <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
-                <button
-                  onClick={() => setMostrarDetallesMoviles(!mostrarDetallesMoviles)}
-                  className="w-full flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="bg-orange-100 p-2 rounded-lg">
-                      <span className="text-lg">📱</span>
-                    </div>
-                    <div className="text-left">
-                      <h3 className="text-lg font-semibold text-gray-900">Servicios Móviles</h3>
-                      <p className="text-sm text-gray-500">{cuadreMoviles.total_consultas} consultas - Q {cuadreMoviles.total_ventas.toFixed(2)}</p>
-                    </div>
-                  </div>
-                  {mostrarDetallesMoviles ? <ChevronUp size={20} className="text-gray-400" /> : <ChevronDown size={20} className="text-gray-400" />}
-                </button>
-                
-                {mostrarDetallesMoviles && (
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                      {cuadreMoviles.cuadres_forma_pago.map(c => (
-                        <div key={c.forma_pago} className="bg-orange-50 rounded-lg p-4 border border-orange-200">
-                          <div className="text-xs text-gray-600 mb-2 font-medium uppercase">{getFormaPagoNombre(c.forma_pago)}</div>
-                          <div className="text-xl font-bold text-gray-900">Q {c.total.toFixed(2)}</div>
-                          <div className="text-xs text-gray-500 mt-1">{c.cantidad} consulta(s)</div>
+                {/* CONTEO DE EFECTIVO */}
+                <div className="mb-8">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    💵 Conteo de Efectivo
+                  </h4>
+                  
+                  {/* Billetes */}
+                  <div className="bg-green-50 rounded-lg p-5 mb-4 border border-green-200">
+                    <h5 className="font-medium text-gray-700 mb-3">BILLETES:</h5>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                      {[
+                        { key: 'b200', label: 'Q 200', value: 200 },
+                        { key: 'b100', label: 'Q 100', value: 100 },
+                        { key: 'b50', label: 'Q 50', value: 50 },
+                        { key: 'b20', label: 'Q 20', value: 20 },
+                        { key: 'b10', label: 'Q 10', value: 10 },
+                        { key: 'b5', label: 'Q 5', value: 5 },
+                        { key: 'b1', label: 'Q 1', value: 1 }
+                      ].map(billete => (
+                        <div key={billete.key}>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">{billete.label}</label>
+                          <input
+                            type="number"
+                            min="0"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium"
+                            value={billetes[billete.key as keyof typeof billetes]}
+                            onChange={(e) => setBilletes({ ...billetes, [billete.key]: e.target.value })}
+                            placeholder="0"
+                          />
+                          {billetes[billete.key as keyof typeof billetes] && (
+                            <div className="text-xs text-green-700 mt-1 text-center font-semibold">
+                              = Q {((parseFloat(billetes[billete.key as keyof typeof billetes]) || 0) * billete.value).toFixed(2)}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  {/* Monedas */}
+                  <div className="bg-yellow-50 rounded-lg p-5 border border-yellow-200">
+                    <h5 className="font-medium text-gray-700 mb-3">MONEDAS:</h5>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                      {[
+                        { key: 'm1', label: 'Q 1', value: 1 },
+                        { key: 'm050', label: 'Q 0.50', value: 0.50 },
+                        { key: 'm025', label: 'Q 0.25', value: 0.25 },
+                        { key: 'm010', label: 'Q 0.10', value: 0.10 },
+                        { key: 'm005', label: 'Q 0.05', value: 0.05 },
+                        { key: 'm001', label: 'Q 0.01', value: 0.01 }
+                      ].map(moneda => (
+                        <div key={moneda.key}>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">{moneda.label}</label>
+                          <input
+                            type="number"
+                            min="0"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium"
+                            value={monedas[moneda.key as keyof typeof monedas]}
+                            onChange={(e) => setMonedas({ ...monedas, [moneda.key]: e.target.value })}
+                            placeholder="0"
+                          />
+                          {monedas[moneda.key as keyof typeof monedas] && (
+                            <div className="text-xs text-yellow-700 mt-1 text-center font-semibold">
+                              = Q {((parseFloat(monedas[moneda.key as keyof typeof monedas]) || 0) * moneda.value).toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Total Efectivo Contado */}
+                  <div className="bg-green-100 border-2 border-green-500 rounded-lg p-4 mt-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-lg font-bold text-gray-900">TOTAL EFECTIVO EN CAJA:</span>
+                      <span className="text-3xl font-bold text-green-700">
+                        Q {calcularTotalEfectivoContado().toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ✅ OTROS MÉTODOS DE PAGO - AHORA CON ESTADO DE CUENTA */}
+                <div className="grid md:grid-cols-2 gap-6 mb-6">
+                  {/* Tarjeta */}
+                  <div className="bg-purple-50 rounded-lg p-5 border border-purple-200">
+                    <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                      💳 Tarjeta (Vouchers)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center"
+                      value={tarjetaContado}
+                      onChange={(e) => setTarjetaContado(e.target.value)}
+                      placeholder="0.00"
+                    />
+                    <p className="text-xs text-gray-600 mt-2 text-center">Suma total de vouchers</p>
+                  </div>
+
+                  {/* Transferencias/Depósitos */}
+                  <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
+                    <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                      🏦 Transferencias/Depósitos
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center"
+                      value={transferenciaContado}
+                      onChange={(e) => setTransferenciaContado(e.target.value)}
+                      placeholder="0.00"
+                    />
+                    <p className="text-xs text-gray-600 mt-2 text-center">Suma de comprobantes</p>
+                  </div>
+
+                  {/* ✅ NUEVO: Estado de Cuenta */}
+                  <div className="bg-amber-50 rounded-lg p-5 border border-amber-200 md:col-span-2">
+                    <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                      📋 Estado de Cuenta
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center"
+                      value={estadoCuentaContado}
+                      onChange={(e) => setEstadoCuentaContado(e.target.value)}
+                      placeholder="0.00"
+                    />
+                    <p className="text-xs text-gray-600 mt-2 text-center">Pagos a cuenta o crédito</p>
+                  </div>
+                </div>
+
+                {/* Observaciones */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Observaciones del Cierre</label>
+                  <textarea
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={observaciones}
+                    onChange={(e) => setObservaciones(e.target.value)}
+                    placeholder="Notas, incidencias o comentarios sobre el cierre..."
+                    rows={3}
+                  />
+                </div>
+
+                {/* Botón de Validación */}
+                {!cuadreValidado && (
+                  <button
+                    onClick={validarCuadre}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6"
+                  >
+                    <CheckCircle2 size={24} />
+                    Validar Cuadre
+                  </button>
+                )}
+
+                {/* RESULTADOS DE VALIDACIÓN */}
+                {cuadreValidado && mostrarEsperados && (
+                  <div className="space-y-4">
+                    {/* Sección de Firma - SOLO SI CUADRA */}
+                    {cuadreCorrecto ? (
+                      <>
+                        {/* Comparación - SOLO CUANDO CUADRA */}
+                        <div className="bg-gray-50 rounded-lg p-6 border-2 border-gray-300">
+                          <h4 className="text-lg font-bold text-gray-900 mb-4">📊 Comparación Sistema vs Contado</h4>
+                          
+                          <div className="space-y-3">
+                            {/* Efectivo */}
+                            <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="font-semibold text-gray-900">💵 Efectivo</span>
+                                <span className="text-green-700 font-bold">✓ Correcto</span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 text-sm">
+                                <div>
+                                  <div className="text-gray-600">Sistema:</div>
+                                  <div className="font-bold">Q {efectivoEsperado.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-600">Contado:</div>
+                                  <div className="font-bold">Q {efectivoContadoNum.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-600">Diferencia:</div>
+                                  <div className="font-bold text-green-700">
+                                    {diferenciaEfectivo > 0 ? '+' : ''}{diferenciaEfectivo.toFixed(2)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Tarjeta */}
+                            <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="font-semibold text-gray-900">💳 Tarjeta</span>
+                                <span className="text-green-700 font-bold">✓ Correcto</span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 text-sm">
+                                <div>
+                                  <div className="text-gray-600">Sistema:</div>
+                                  <div className="font-bold">Q {tarjetaEsperada.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-600">Contado:</div>
+                                  <div className="font-bold">Q {tarjetaContadoNum.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-600">Diferencia:</div>
+                                  <div className="font-bold text-green-700">
+                                    {diferenciaTarjeta > 0 ? '+' : ''}{diferenciaTarjeta.toFixed(2)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Transferencias */}
+                            <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="font-semibold text-gray-900">🏦 Transferencias</span>
+                                <span className="text-green-700 font-bold">✓ Correcto</span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 text-sm">
+                                <div>
+                                  <div className="text-gray-600">Sistema:</div>
+                                  <div className="font-bold">Q {depositadoEsperado.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-600">Contado:</div>
+                                  <div className="font-bold">Q {depositadoContadoNum.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-600">Diferencia:</div>
+                                  <div className="font-bold text-green-700">
+                                    {diferenciaDepositado > 0 ? '+' : ''}{diferenciaDepositado.toFixed(2)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* ✅ Estado de Cuenta */}
+                            {estadoCuentaEsperada > 0 && (
+                              <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
+                                <div className="flex justify-between items-center mb-2">
+                                  <span className="font-semibold text-gray-900">📋 Estado de Cuenta</span>
+                                  <span className="text-green-700 font-bold">✓ Correcto</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 text-sm">
+                                  <div>
+                                    <div className="text-gray-600">Sistema:</div>
+                                    <div className="font-bold">Q {estadoCuentaEsperada.toFixed(2)}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-gray-600">Contado:</div>
+                                    <div className="font-bold">Q {estadoCuentaContadoNum.toFixed(2)}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-gray-600">Diferencia:</div>
+                                    <div className="font-bold text-green-700">
+                                      {diferenciaEstadoCuenta > 0 ? '+' : ''}{diferenciaEstadoCuenta.toFixed(2)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="bg-green-50 border-2 border-green-500 rounded-lg p-6">
+                          <div className="flex items-center gap-3 mb-4">
+                            <CheckCircle2 size={32} className="text-green-600" />
+                            <div>
+                              <h4 className="text-xl font-bold text-green-700">¡Cuadre Correcto!</h4>
+                              <p className="text-sm text-green-600">Confirme el cierre de caja</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Nombre de quien cuadro *
+                              </label>
+                              <input
+                                type="text"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                value={nombreCajero}
+                                onChange={(e) => setNombreCajero(e.target.value)}
+                                placeholder="Ingrese su nombre completo"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                PIN de Autorización *
+                              </label>
+                              <input
+                                type="password"
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                value={pinCierre}
+                                onChange={(e) => setPinCierre(e.target.value)}
+                                placeholder="••••"
+                                maxLength={4}
+                              />
+                            </div>
+
+                            <button
+                              onClick={confirmarCierre}
+                              className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors"
+                            >
+                              <Lock size={24} />
+                              Confirmar y Cerrar Caja
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="bg-red-50 border-2 border-red-500 rounded-lg p-6">
+                        <div className="flex items-center gap-3 mb-3">
+                          <X size={32} className="text-red-600" />
+                          <div>
+                            <h4 className="text-xl font-bold text-red-700">Cuadre Incorrecto</h4>
+                            <p className="text-sm text-red-600">Revise los montos ingresados y vuelva a contar</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setCuadreValidado(false);
+                            setMostrarEsperados(false);
+                          }}
+                          className="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium mt-4 transition-colors"
+                        >
+                          Volver a Contar
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -579,7 +866,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   onClick={() => setMostrarGastos(!mostrarGastos)}
                   className="flex items-center gap-2"
                 >
-                  <TrendingDown size={20} className="text-red-600" />
+                  <span className="text-red-600 text-2xl">📉</span>
                   <h3 className="text-lg font-semibold text-gray-900">Gastos del Día</h3>
                   {gastos.length > 0 && (
                     <span className="bg-red-100 text-red-700 text-xs font-medium px-2 py-1 rounded-full">
@@ -588,13 +875,15 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   )}
                   {mostrarGastos ? <ChevronUp size={16} className="text-gray-400 ml-1" /> : <ChevronDown size={16} className="text-gray-400 ml-1" />}
                 </button>
-                <button
-                  onClick={() => setShowModalGasto(true)}
-                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
-                >
-                  <Plus size={16} />
-                  Agregar
-                </button>
+                {!cuadreCerrado && (
+                  <button
+                    onClick={() => setShowModalGasto(true)}
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                  >
+                    <Plus size={16} />
+                    Agregar
+                  </button>
+                )}
               </div>
 
               {mostrarGastos && (
@@ -624,12 +913,14 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <div className="text-lg font-bold text-red-600">
                             - Q {gasto.monto.toFixed(2)}
                           </div>
-                          <button
-                            onClick={() => eliminarGasto(gasto.id)}
-                            className="text-red-600 hover:bg-red-100 p-2 rounded transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {!cuadreCerrado && (
+                            <button
+                              onClick={() => eliminarGasto(gasto.id)}
+                              className="text-red-600 hover:bg-red-100 p-2 rounded transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -643,147 +934,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                 )
               )}
             </div>
-
-            {/* Cuadre de Caja */}
-            {mostrarCuadre && cuadre && cuadre.total_consultas > 0 && (
-              <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
-                <div className="flex items-center gap-2 mb-6">
-                  <div className="bg-yellow-100 p-2 rounded-lg">
-                    <DollarSign size={24} className="text-yellow-700" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-gray-900">Cuadre de Caja</h3>
-                </div>
-
-                <div className="grid md:grid-cols-3 gap-6 mb-6">
-                  {/* Efectivo */}
-                  <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      💵 Efectivo
-                    </label>
-                    <div className="bg-white p-3 rounded-lg border border-gray-200 mb-3">
-                      <span className="text-xs text-gray-500">Esperado:</span>
-                      <div className="text-xl font-bold text-gray-900">Q {efectivoEsperado.toFixed(2)}</div>
-                    </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      value={efectivoContado}
-                      onChange={(e) => setEfectivoContado(e.target.value)}
-                      placeholder="Ingrese monto contado"
-                    />
-                    {efectivoContado && (
-                      <div className={`mt-3 p-2 rounded-lg text-center text-sm font-semibold ${
-                        Math.abs(diferenciaEfectivo) < 0.01 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-red-100 text-red-700'
-                      }`}>
-                        {Math.abs(diferenciaEfectivo) < 0.01 ? '✓ Correcto' : `Diferencia: Q ${diferenciaEfectivo.toFixed(2)}`}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Tarjeta */}
-                  <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      💳 Tarjeta
-                    </label>
-                    <div className="bg-white p-3 rounded-lg border border-gray-200 mb-3">
-                      <span className="text-xs text-gray-500">Esperado:</span>
-                      <div className="text-xl font-bold text-gray-900">Q {tarjetaEsperada.toFixed(2)}</div>
-                    </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      value={tarjetaContado}
-                      onChange={(e) => setTarjetaContado(e.target.value)}
-                      placeholder="Ingrese monto contado"
-                    />
-                    {tarjetaContado && (
-                      <div className={`mt-3 p-2 rounded-lg text-center text-sm font-semibold ${
-                        Math.abs(diferenciaTarjeta) < 0.01 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-red-100 text-red-700'
-                      }`}>
-                        {Math.abs(diferenciaTarjeta) < 0.01 ? '✓ Correcto' : `Diferencia: Q ${diferenciaTarjeta.toFixed(2)}`}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Depositado */}
-                  <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      🏦 Depositado
-                    </label>
-                    <div className="bg-white p-3 rounded-lg border border-gray-200 mb-3">
-                      <span className="text-xs text-gray-500">Esperado:</span>
-                      <div className="text-xl font-bold text-gray-900">Q {depositadoEsperado.toFixed(2)}</div>
-                    </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      value={transferenciaContado}
-                      onChange={(e) => setTransferenciaContado(e.target.value)}
-                      placeholder="Ingrese monto contado"
-                    />
-                    {transferenciaContado && (
-                      <div className={`mt-3 p-2 rounded-lg text-center text-sm font-semibold ${
-                        Math.abs(diferenciaDepositado) < 0.01 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-red-100 text-red-700'
-                      }`}>
-                        {Math.abs(diferenciaDepositado) < 0.01 ? '✓ Correcto' : `Diferencia: Q ${diferenciaDepositado.toFixed(2)}`}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Observaciones */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Observaciones</label>
-                  <textarea
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    value={observaciones}
-                    onChange={(e) => setObservaciones(e.target.value)}
-                    placeholder="Notas sobre el cuadre del día..."
-                    rows={3}
-                  />
-                </div>
-
-                {/* Resultado y Botón */}
-                {efectivoContado !== '' && tarjetaContado !== '' && transferenciaContado !== '' && (
-                  <>
-                    <div className={`p-5 rounded-lg text-center mb-6 border-2 ${
-                      cuadreCorrecto 
-                        ? 'bg-green-50 border-green-500' 
-                        : 'bg-yellow-50 border-yellow-500'
-                    }`}>
-                      {cuadreCorrecto ? (
-                        <div className="flex items-center justify-center gap-3">
-                          <CheckCircle2 size={28} className="text-green-600" />
-                          <span className="text-xl font-bold text-green-700">¡Cuadre Correcto!</span>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="text-xl font-bold text-yellow-700 mb-1">⚠️ Cuadre con Diferencias</div>
-                          <p className="text-sm text-yellow-600">Revisa los montos ingresados</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      onClick={() => descargarCuadre('csv')}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg font-semibold flex items-center justify-center gap-2 transition-colors"
-                    >
-                      <Save size={20} />
-                      Descargar Reporte Excel
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
 
             {/* Consultas Anuladas */}
             {consultasAnuladas.length > 0 && (

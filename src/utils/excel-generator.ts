@@ -24,6 +24,11 @@ interface Consulta {
   numero_factura?: string;
   tipo_cobro: string;
   forma_pago: string;
+  detalle_pagos_multiples?: Array<{
+    forma_pago: string;
+    monto: number;
+    numero_referencia?: string;
+  }>;
   detalle_consultas: Array<{
     precio: number;
     es_referido_medico?: boolean;
@@ -31,6 +36,7 @@ interface Consulta {
     nit?: string;
     numero_voucher?: string;
     numero_transferencia?: string;
+    comentarios?: string;
     sub_estudios: {
       nombre: string;
       estudios: {
@@ -117,21 +123,22 @@ async function crearHojaDiaria(
   const fecha = `${dia.toString().padStart(2, '0')}/${mes.toString().padStart(2, '0')}/${anio}`;
 
   // Calcular número total de columnas
-  const numColumnasFijas = 8;
+  const numColumnasFijas = 9; // ✅ Cambiado de 8 a 9 (agregamos HORA)
   const numColumnasEstudios = estudiosDisponibles.length;
   const numColumnasFinales = 2;
   const totalColumnas = numColumnasFijas + numColumnasEstudios + numColumnasFinales;
 
   // Configurar anchos de columna
   const columnWidths: any[] = [
-    { width: 4 },
-    { width: 24 },
-    { width: 6 },
-    { width: 13 },
-    { width: 28 },
-    { width: 20 },
-    { width: 13 },
-    { width: 13 },
+    { width: 4 },   // No.
+    { width: 8 },   // ✅ NUEVA: HORA
+    { width: 24 },  // Nombre
+    { width: 6 },   // Edad
+    { width: 13 },  // No. Factura
+    { width: 28 },  // Estudio
+    { width: 20 },  // Médico
+    { width: 13 },  // Precio Social
+    { width: 13 },  // Forma de Pago
   ];
 
   estudiosDisponibles.forEach(() => {
@@ -189,6 +196,7 @@ async function crearHojaDiaria(
   // FILA 2: HEADERS
   const headers = [
     '',
+    'HORA', // ✅ NUEVA COLUMNA
     'NOMBRE DEL PACIENTE',
     'EDAD',
     'NO. FACTURA',
@@ -228,7 +236,11 @@ async function crearHojaDiaria(
   consultas.forEach((consulta, idx) => {
     // Agrupar TODOS los estudios en una sola línea
     const nombresEstudios = consulta.detalle_consultas
-      .map(d => d.sub_estudios?.nombre || '')
+      .map(d => {
+        const nombre = d.sub_estudios?.nombre || '';
+        const comentario = d.comentarios ? ` (${d.comentarios})` : '';
+        return nombre + comentario;
+      })
       .join(', ');
     
     // Calcular si es horario inhábil
@@ -276,7 +288,7 @@ async function crearHojaDiaria(
         case 'efectivo_facturado':
           return 'DEPOSITADO';
         case 'transferencia':
-          return 'DEPOSITADO';
+          return 'TRANSFERENCIA'; // ✅ Cambio: ahora muestra TRANSFERENCIA
         case 'tarjeta':
           return 'TARJETA';
         case 'estado_cuenta':
@@ -317,8 +329,16 @@ async function crearHojaDiaria(
     
     const todasLasFacturas = facturas.length > 0 ? facturas.join(', ') : '';
 
+    // ✅ NUEVO: Extraer hora de created_at
+    const horaConsulta = new Date(consulta.created_at).toLocaleTimeString('es-GT', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+
     const valoresFila: any[] = [
       idx + 1,
+      horaConsulta, // ✅ NUEVA: Columna de hora
       consulta.pacientes.nombre.toUpperCase(),
       edadFormateada,
       todasLasFacturas,
@@ -352,15 +372,22 @@ async function crearHojaDiaria(
     valoresFila.forEach((valor, colIdx) => {
       const cell = worksheet.getCell(filaActual, colIdx + 1);
       
-      if (colIdx === 4 && esInhabil) {
+      // ✅ Actualizado: colIdx 5 es ESTUDIO (antes era 4)
+      if (colIdx === 5 && esInhabil) {
         cell.font = { name: 'Arial', size: 10, color: { argb: 'FFFF0000' }, bold: true };
       } else {
         cell.font = { name: 'Arial', size: 10 };
       }
 
-      if (colIdx === 0 || colIdx === 2) {
+      // Alineación de columnas
+      // colIdx 0 = No. (centro)
+      // colIdx 1 = HORA (centro) ✅ NUEVO
+      // colIdx 3 = EDAD (centro)
+      // colIdx >= 8 = Columnas numéricas (derecha)
+      // último = TIPO (centro)
+      if (colIdx === 0 || colIdx === 1 || colIdx === 3) { // ✅ Agregado colIdx 1 (HORA)
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      } else if (colIdx >= 7 && colIdx < valoresFila.length - 1) {
+      } else if (colIdx >= 8 && colIdx < valoresFila.length - 1) { // ✅ Cambiado de 7 a 8
         cell.alignment = { horizontal: 'right', vertical: 'middle' };
       } else if (colIdx === valoresFila.length - 1) {
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -368,7 +395,7 @@ async function crearHojaDiaria(
         cell.alignment = { horizontal: 'left', vertical: 'middle' };
       }
 
-      if (typeof valor === 'number' && colIdx >= 7) {
+      if (typeof valor === 'number' && colIdx >= 8) { // ✅ Cambiado de 7 a 8
         cell.numFmt = '#,##0.00';
       }
 
@@ -391,7 +418,12 @@ async function crearHojaDiaria(
     .reduce((sum, c) => sum + c.detalle_consultas.reduce((s, d) => s + d.precio, 0), 0);
   
   const totalDepositado = consultas
-    .filter(c => c.forma_pago === 'efectivo_facturado' || c.forma_pago === 'transferencia')
+    .filter(c => c.forma_pago === 'efectivo_facturado')
+    .reduce((sum, c) => sum + c.detalle_consultas.reduce((s, d) => s + d.precio, 0), 0);
+  
+  // ✅ NUEVO: Transferencia separada
+  const totalTransferencia = consultas
+    .filter(c => c.forma_pago === 'transferencia')
     .reduce((sum, c) => sum + c.detalle_consultas.reduce((s, d) => s + d.precio, 0), 0);
   
   const totalTarjeta = consultas
@@ -408,6 +440,7 @@ async function crearHojaDiaria(
   const totales = [
     { label: 'EFECTIVO', valor: totalEfectivo },
     { label: 'DEPOSITADO', valor: totalDepositado },
+    { label: 'TRANSFERENCIA', valor: totalTransferencia }, // ✅ NUEVO
     { label: 'TARJETA', valor: totalTarjeta },
     { label: 'ESTADO DE CUENTA', valor: totalEstadoCuenta },
     { label: 'TOTAL GENERADO', valor: totalGenerado }
@@ -416,7 +449,7 @@ async function crearHojaDiaria(
   totales.forEach((total, idx) => {
     const fila = filaTotalesInicio + idx;
 
-    const cellLabel = worksheet.getCell(fila, 7);
+    const cellLabel = worksheet.getCell(fila, 8); // ✅ Cambiado de 7 a 8
     cellLabel.value = total.label;
     cellLabel.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
     cellLabel.fill = {
@@ -432,7 +465,7 @@ async function crearHojaDiaria(
       right: { style: 'thin' }
     };
 
-    const cellValor = worksheet.getCell(fila, 8);
+    const cellValor = worksheet.getCell(fila, 9); // ✅ Cambiado de 8 a 9
     cellValor.value = total.valor;
     cellValor.numFmt = '#,##0.00';
     cellValor.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -597,7 +630,11 @@ async function crearHojaMoviles(
   consultas.forEach((consulta) => {
     const estudiosRX = consulta.detalle_consultas
       .filter(d => d.sub_estudios?.estudios?.nombre?.toUpperCase() === 'RX')
-      .map(d => d.sub_estudios?.nombre || '')
+      .map(d => {
+        const nombre = d.sub_estudios?.nombre || '';
+        const comentario = d.comentarios ? ` (${d.comentarios})` : '';
+        return nombre + comentario;
+      })
       .join(', ');
     
     const precioRX = consulta.detalle_consultas
@@ -636,7 +673,7 @@ async function crearHojaMoviles(
         case 'efectivo_facturado':
           return 'DEPOSITADO';
         case 'transferencia':
-          return 'DEPOSITADO';
+          return 'TRANSFERENCIA'; // ✅ Cambio
         case 'tarjeta':
           return 'TARJETA';
         case 'estado_cuenta':
@@ -823,3 +860,353 @@ async function crearHojaMoviles(
     right: { style: 'thin' }
   };
 }
+// ✅ NUEVA FUNCIÓN: Reporte Mensual Unificado (una sola hoja)
+export const generarReporteMensualUnificado = async (
+  mes: number,
+  anio: number,
+  consultas: Consulta[]
+): Promise<void> => {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('REPORTE MENSUAL');
+
+  // Obtener todos los estudios disponibles para columnas dinámicas
+  const { data: estudiosDisponibles, error: errorEstudios } = await supabase
+    .from('estudios')
+    .select('id, nombre')
+    .order('nombre');
+
+  if (errorEstudios) throw errorEstudios;
+
+  const estudios = estudiosDisponibles || [];
+  const numColumnasFijas = 8; // No., Fecha, Paciente, Edad, No. Factura, Estudio, Médico, Precio Social
+  const numColumnasEstudios = estudios.length;
+  const numColumnasFinales = 3; // Forma Pago, Cuenta, Tipo
+  const totalColumnas = numColumnasFijas + numColumnasEstudios + numColumnasFinales;
+
+  // Configurar anchos de columna
+  const columnWidths: any[] = [
+    { width: 4 },   // No.
+    { width: 10 },  // Fecha
+    { width: 24 },  // Paciente
+    { width: 6 },   // Edad
+    { width: 13 },  // No. Factura
+    { width: 28 },  // Estudio
+    { width: 20 },  // Médico
+    { width: 13 },  // Precio Social
+  ];
+
+  estudios.forEach(() => {
+    columnWidths.push({ width: 11 }); // Columnas de estudios
+  });
+
+  columnWidths.push({ width: 13 }); // Forma de pago
+  columnWidths.push({ width: 11 }); // Cuenta
+  columnWidths.push({ width: 6 });  // Tipo
+
+  worksheet.columns = columnWidths;
+
+  // FILA 1: TÍTULO
+  const getColumnLetter = (colNumber: number): string => {
+    let letter = '';
+    while (colNumber > 0) {
+      const remainder = (colNumber - 1) % 26;
+      letter = String.fromCharCode(65 + remainder) + letter;
+      colNumber = Math.floor((colNumber - 1) / 26);
+    }
+    return letter;
+  };
+
+  const nombreMes = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+    'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'][mes - 1];
+
+  worksheet.mergeCells('A1:E1');
+  const cellTitulo = worksheet.getCell('A1');
+  cellTitulo.value = `REPORTE MENSUAL - ${nombreMes} ${anio}`;
+  cellTitulo.font = { name: 'Calibri', size: 14, bold: true };
+  cellTitulo.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFD9D9D9' }
+  };
+  cellTitulo.alignment = { horizontal: 'center', vertical: 'middle' };
+  cellTitulo.border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  const ultimaColumna = getColumnLetter(totalColumnas);
+  worksheet.mergeCells(`F1:${ultimaColumna}1`);
+  const cellConrad = worksheet.getCell('F1');
+  cellConrad.value = 'CONRAD CENTRAL';
+  cellConrad.font = { name: 'Calibri', size: 14, bold: true };
+  cellConrad.alignment = { horizontal: 'center', vertical: 'middle' };
+  cellConrad.border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  // FILA 2: HEADERS
+  const headers = [
+    'No.',
+    'FECHA',
+    'NOMBRE DEL PACIENTE',
+    'EDAD',
+    'NO. FACTURA',
+    'ESTUDIO',
+    'MEDICO REFERENTE',
+    'PRECIO SOCIAL',
+    ...estudios.map(e => e.nombre.toUpperCase()),
+    'FORMA DE PAGO',
+    'CUENTA',
+    'TIPO'
+  ];
+
+  worksheet.getRow(2).values = headers;
+  worksheet.getRow(2).height = 25;
+
+  headers.forEach((header, idx) => {
+    const cell = worksheet.getCell(2, idx + 1);
+    cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF4472C4' }
+    };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = {
+      top: { style: 'thin' },
+      bottom: { style: 'thin' },
+      left: { style: 'thin' },
+      right: { style: 'thin' }
+    };
+  });
+
+  // FILAS 3+: DATOS
+  let filaActual = 3;
+  let numeroConsecutivo = 1;
+
+  consultas.forEach((consulta) => {
+    const nombresEstudios = consulta.detalle_consultas
+      .map(d => {
+        const nombre = d.sub_estudios?.nombre || '';
+        const comentario = d.comentarios ? ` (${d.comentarios})` : '';
+        return nombre + comentario;
+      })
+      .join(', ');
+
+    const fechaConsulta = new Date(consulta.created_at);
+    const diaSemana = fechaConsulta.getDay();
+    const hora = fechaConsulta.getHours();
+
+    let esInhabil = false;
+    if (diaSemana === 0) {
+      esInhabil = true;
+    } else if (diaSemana === 6) {
+      esInhabil = hora < 7 || hora >= 11;
+    } else {
+      esInhabil = hora < 7 || hora >= 16;
+    }
+
+    const estudioTexto = esInhabil ? `${nombresEstudios.toUpperCase()} INHABIL` : nombresEstudios.toUpperCase();
+
+    const medicoNombre = consulta.sin_informacion_medico 
+      ? 'SIN INFORMACIÓN'
+      : (consulta.medicos?.nombre || consulta.medico_recomendado || 'N/A');
+
+    const precioSocial = consulta.detalle_consultas.reduce((sum, d) => sum + d.precio, 0);
+
+    const edadFormateada = consulta.pacientes.edad_valor && consulta.pacientes.edad_tipo
+      ? `${consulta.pacientes.edad_valor} ${consulta.pacientes.edad_tipo}`
+      : `${consulta.pacientes.edad} años`;
+
+    const fechaFormateada = new Date(consulta.fecha).toLocaleDateString('es-GT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+    // Mapear forma de pago
+    const formaPagoTexto = (() => {
+      if (consulta.forma_pago === 'pago_multiple') return 'MÚLTIPLE';
+      switch (consulta.forma_pago) {
+        case 'efectivo': return 'EFECTIVO';
+        case 'efectivo_facturado': return 'DEPOSITADO';
+        case 'transferencia': return 'TRANSFERENCIA'; // ✅ Cambio
+        case 'tarjeta': return 'TARJETA';
+        case 'estado_cuenta': return 'ESTADO DE CUENTA';
+        default: return consulta.forma_pago?.toUpperCase() || '';
+      }
+    })();
+
+    // Valores de la fila base
+    const valoresFila: any[] = [
+      numeroConsecutivo++,
+      fechaFormateada,
+      consulta.pacientes?.nombre?.toUpperCase() || 'SIN NOMBRE',
+      edadFormateada,
+      consulta.numero_factura || '',
+      estudioTexto,
+      medicoNombre.toUpperCase(),
+      precioSocial
+    ];
+
+    // Agregar columnas de estudios (marcar con precio si aplica)
+    estudios.forEach(estudio => {
+      const tieneEstudio = consulta.detalle_consultas.some(
+        d => d.sub_estudios?.estudios?.id === estudio.id
+      );
+      if (tieneEstudio) {
+        const precioEstudio = consulta.detalle_consultas
+          .filter(d => d.sub_estudios?.estudios?.id === estudio.id)
+          .reduce((sum, d) => sum + d.precio, 0);
+        valoresFila.push(precioEstudio);
+      } else {
+        valoresFila.push('');
+      }
+    });
+
+    // Agregar columnas finales
+    valoresFila.push(formaPagoTexto);
+    valoresFila.push(precioSocial); // Cuenta (total)
+    valoresFila.push(consulta.tipo_cobro?.toUpperCase() || 'NORMAL');
+
+    worksheet.getRow(filaActual).values = valoresFila;
+
+    // Aplicar estilos
+    valoresFila.forEach((valor, colIdx) => {
+      const cell = worksheet.getCell(filaActual, colIdx + 1);
+      cell.font = { name: 'Arial', size: 10 };
+
+      if (colIdx === 0 || colIdx === 3) {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      } else if (colIdx >= numColumnasFijas - 1) {
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        if (typeof valor === 'number') {
+          cell.numFmt = '#,##0.00';
+        }
+      } else {
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+      }
+
+      cell.border = {
+        top: { style: 'thin' },
+        bottom: { style: 'thin' },
+        left: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+    });
+
+    filaActual++;
+  });
+
+  // TABLA DE TOTALES AL FINAL
+  filaActual += 2; // Espacio
+
+  // Calcular totales por forma de pago
+  const totales: { [key: string]: number } = {
+    efectivo: 0,
+    depositado: 0,
+    transferencia: 0, // ✅ NUEVO: Transferencia separada
+    tarjeta: 0,
+    estado_cuenta: 0
+  };
+
+  consultas.forEach(consulta => {
+    const total = consulta.detalle_consultas.reduce((sum, d) => sum + d.precio, 0);
+    
+    if (consulta.forma_pago === 'pago_multiple' && consulta.detalle_pagos_multiples) {
+      // ✅ Desglosa por pagos múltiples
+      consulta.detalle_pagos_multiples.forEach((pago: any) => {
+        if (pago.forma_pago === 'efectivo') {
+          totales.efectivo += pago.monto;
+        } else if (pago.forma_pago === 'efectivo_facturado') {
+          totales.depositado += pago.monto;
+        } else if (pago.forma_pago === 'transferencia') {
+          totales.transferencia += pago.monto; // ✅ NUEVO: Separado
+        } else if (pago.forma_pago === 'tarjeta') {
+          totales.tarjeta += pago.monto;
+        }
+      });
+    } else {
+      // Pago simple
+      if (consulta.forma_pago === 'efectivo') {
+        totales.efectivo += total;
+      } else if (consulta.forma_pago === 'efectivo_facturado') {
+        totales.depositado += total;
+      } else if (consulta.forma_pago === 'transferencia') {
+        totales.transferencia += total; // ✅ NUEVO: Separado
+      } else if (consulta.forma_pago === 'tarjeta') {
+        totales.tarjeta += total;
+      } else if (consulta.forma_pago === 'estado_cuenta') {
+        totales.estado_cuenta += total;
+      }
+    }
+  });
+
+  const totalGeneral = totales.efectivo + totales.depositado + totales.transferencia + totales.tarjeta + totales.estado_cuenta;
+
+  // Renderizar tabla de totales
+  const tablaInicio = filaActual;
+
+  const tiposPago = [
+    { label: 'EFECTIVO', valor: totales.efectivo, color: 'FF4472C4' },
+    { label: 'DEPOSITADO', valor: totales.depositado, color: 'FF70AD47' },
+    { label: 'TRANSFERENCIA', valor: totales.transferencia, color: 'FF9370DB' }, // ✅ NUEVO: Color morado
+    { label: 'TARJETA', valor: totales.tarjeta, color: 'FFFFC000' },
+    { label: 'ESTADO DE CUENTA', valor: totales.estado_cuenta, color: 'FF5B9BD5' },
+    { label: 'TOTAL GENERADO', valor: totalGeneral, color: 'FFFF8C00' }
+  ];
+
+  tiposPago.forEach((tipo, idx) => {
+    const fila = tablaInicio + idx;
+    
+    const cellLabel = worksheet.getCell(fila, 7);
+    cellLabel.value = tipo.label;
+    cellLabel.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    cellLabel.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: tipo.color }
+    };
+    cellLabel.alignment = { horizontal: 'center', vertical: 'middle' };
+    cellLabel.border = {
+      top: { style: 'thin' },
+      bottom: { style: 'thin' },
+      left: { style: 'thin' },
+      right: { style: 'thin' }
+    };
+
+    const cellValor = worksheet.getCell(fila, 8);
+    cellValor.value = tipo.valor;
+    cellValor.numFmt = '#,##0.00';
+    cellValor.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    cellValor.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: tipo.color }
+    };
+    cellValor.alignment = { horizontal: 'right', vertical: 'middle' };
+    cellValor.border = {
+      top: { style: 'thin' },
+      bottom: { style: 'thin' },
+      left: { style: 'thin' },
+      right: { style: 'thin' }
+    };
+  });
+
+  // Generar archivo y descargar
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `REPORTE_${nombreMes}_${anio}_UNIFICADO.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};

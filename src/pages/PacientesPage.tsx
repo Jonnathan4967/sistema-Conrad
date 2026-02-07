@@ -28,6 +28,10 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   const [formaPagoEditando, setFormaPagoEditando] = useState('');
   const [requiereFacturaEditando, setRequiereFacturaEditando] = useState(false);
 
+  // ✅ NUEVO: Estados para modal de tipo de recibo
+  const [showModalTipoRecibo, setShowModalTipoRecibo] = useState(false);
+  const [datosReciboTemp, setDatosReciboTemp] = useState<any>(null);
+
   useEffect(() => {
     cargarConsultas();
   }, [fecha]);
@@ -61,7 +65,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     setLoading(false);
   };
 
-  const eliminarConsulta = async (consultaId: string, numeroEliminado: number) => {
+  const eliminarConsulta = async (consultaId: string, numeroEliminado: number | null) => {
     const motivo = prompt('⚠️ ANULAR CONSULTA\n\n¿Por qué se anula?\n(Obligatorio para auditoría)');
     
     if (!motivo || motivo.trim() === '') {
@@ -69,7 +73,12 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       return;
     }
 
-    if (!confirm(`¿ANULAR esta consulta?\n\nMotivo: ${motivo}\n\nLos pacientes posteriores se renumerarán automáticamente.`)) {
+    // Mensaje diferente para móviles (no tienen número)
+    const mensajeConfirmacion = numeroEliminado 
+      ? `¿ANULAR esta consulta?\n\nMotivo: ${motivo}\n\nLos pacientes posteriores se renumerarán automáticamente.`
+      : `¿ANULAR este servicio móvil?\n\nMotivo: ${motivo}`;
+
+    if (!confirm(mensajeConfirmacion)) {
       return;
     }
 
@@ -90,30 +99,40 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
       if (error) throw error;
 
-      // ✅ Renumerar todos los pacientes NO anulados posteriores (bajar en 1)
-      const { data: consultasPosteriores, error: errorConsultar } = await supabase
-        .from('consultas')
-        .select('id, numero_paciente')
-        .eq('fecha', fecha)
-        .or('anulado.is.null,anulado.eq.false') // Solo las activas
-        .gt('numero_paciente', numeroEliminado)
-        .order('numero_paciente', { ascending: true });
+      // ✅ Solo renumerar si es paciente regular (tiene número)
+      let consultasPosteriores: any[] = [];
+      
+      if (numeroEliminado !== null && numeroEliminado !== undefined) {
+        // Renumerar todos los pacientes NO anulados posteriores (bajar en 1)
+        const { data, error: errorConsultar } = await supabase
+          .from('consultas')
+          .select('id, numero_paciente')
+          .eq('fecha', fecha)
+          .or('anulado.is.null,anulado.eq.false') // Solo las activas
+          .gt('numero_paciente', numeroEliminado)
+          .order('numero_paciente', { ascending: true });
 
-      if (errorConsultar) throw errorConsultar;
+        if (errorConsultar) throw errorConsultar;
+        consultasPosteriores = data || [];
 
-      // Renumerar cada consulta posterior
-      if (consultasPosteriores && consultasPosteriores.length > 0) {
-        for (const consulta of consultasPosteriores) {
-          const { error: errorActualizar } = await supabase
-            .from('consultas')
-            .update({ numero_paciente: consulta.numero_paciente - 1 })
-            .eq('id', consulta.id);
-          
-          if (errorActualizar) throw errorActualizar;
+        // Renumerar cada consulta posterior
+        if (consultasPosteriores.length > 0) {
+          for (const consulta of consultasPosteriores) {
+            const { error: errorActualizar } = await supabase
+              .from('consultas')
+              .update({ numero_paciente: consulta.numero_paciente - 1 })
+              .eq('id', consulta.id);
+            
+            if (errorActualizar) throw errorActualizar;
+          }
         }
       }
 
-      alert(`✅ CONSULTA ANULADA\n\nUsuario: ${usuarioActual}\nMotivo: ${motivo}\n\n${consultasPosteriores?.length || 0} pacientes renumerados.`);
+      const mensajeExito = numeroEliminado
+        ? `✅ CONSULTA ANULADA\n\nUsuario: ${usuarioActual}\nMotivo: ${motivo}\n\n${consultasPosteriores.length} pacientes renumerados.`
+        : `✅ SERVICIO MÓVIL ANULADO\n\nUsuario: ${usuarioActual}\nMotivo: ${motivo}`;
+
+      alert(mensajeExito);
       cargarConsultas();
     } catch (error) {
       console.error('Error al eliminar consulta:', error);
@@ -307,7 +326,8 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     
     const estudiosRecibo = consulta.detalle_consultas.map((d: any) => ({
       nombre: d.sub_estudios.nombre,
-      precio: d.precio
+      precio: d.precio,
+      comentarios: d.comentarios || undefined // ✅ NUEVO
     }));
 
     const total = estudiosRecibo.reduce((sum: number, e: any) => sum + e.precio, 0);
@@ -333,20 +353,9 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       sinInfoMedico: consulta.sin_informacion_medico
     };
 
-    // Preguntar qué tipo de recibo imprimir
-    const tipoRecibo = confirm(
-      '¿Qué recibo desea imprimir?\n\n' +
-      'Aceptar (OK) = Recibo Completo (con precios)\n' +
-      'Cancelar = Orden para Médico (sin precios)'
-    );
-
-    if (tipoRecibo) {
-      const htmlCompleto = generarReciboCompleto(datosRecibo);
-      abrirRecibo(htmlCompleto, 'Recibo Completo');
-    } else {
-      const htmlMedico = generarReciboMedico(datosRecibo);
-      abrirRecibo(htmlMedico, 'Orden Médico');
-    }
+    // ✅ NUEVO: Guardar datos y mostrar modal
+    setDatosReciboTemp(datosRecibo);
+    setShowModalTipoRecibo(true);
   };
 
   const reimprimirSoloAdicionales = (consulta: any) => {
@@ -390,20 +399,25 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       sinInfoMedico: consulta.sin_informacion_medico
     };
 
-    // Preguntar qué tipo de recibo imprimir
-    const tipoRecibo = confirm(
-      '¿Qué recibo desea imprimir?\n\n' +
-      'Aceptar (OK) = Recibo SOLO Adicionales (con precios)\n' +
-      'Cancelar = Orden para Médico SOLO Adicionales (sin precios)'
-    );
+    // ✅ NUEVO: Guardar datos y mostrar modal
+    setDatosReciboTemp(datosRecibo);
+    setShowModalTipoRecibo(true);
+  };
 
-    if (tipoRecibo) {
-      const htmlCompleto = generarReciboCompleto(datosRecibo);
-      abrirRecibo(htmlCompleto, 'Recibo Estudios Adicionales');
+  // ✅ NUEVA FUNCIÓN: Imprimir recibo seleccionado
+  const imprimirReciboSeleccionado = (tipoRecibo: 'completo' | 'medico') => {
+    if (!datosReciboTemp) return;
+
+    if (tipoRecibo === 'completo') {
+      const htmlCompleto = generarReciboCompleto(datosReciboTemp);
+      abrirRecibo(htmlCompleto, 'Recibo Completo');
     } else {
-      const htmlMedico = generarReciboMedico(datosRecibo);
-      abrirRecibo(htmlMedico, 'Orden Médico - Adicionales');
+      const htmlMedico = generarReciboMedico(datosReciboTemp);
+      abrirRecibo(htmlMedico, 'Orden Médico');
     }
+
+    setShowModalTipoRecibo(false);
+    setDatosReciboTemp(null);
   };
 
   const getTipoCobro = (tipo: string) => {
@@ -595,6 +609,12 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                       </button>
                     )}
                   </div>
+                  {/* ✅ NUEVO: Mostrar comentarios si existen */}
+                  {detalle.comentarios && detalle.comentarios.trim() !== '' && (
+                    <div className="text-xs text-gray-600 mt-1 ml-4 p-2 bg-blue-50 rounded">
+                      <strong>📝 Comentarios:</strong> {detalle.comentarios}
+                    </div>
+                  )}
                   {/* Mostrar factura individual si el estudio la tiene */}
                   {detalle.numero_factura && (
                     <div className="text-xs text-gray-600 mt-1 ml-4">
@@ -1132,6 +1152,49 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
               </button>
               <button onClick={guardarFormaPago} className="btn-primary">
                 Guardar Cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ NUEVO: Modal de selección de tipo de recibo */}
+      {showModalTipoRecibo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-4 text-center">
+              ¿Qué recibo desea imprimir?
+            </h2>
+            
+            <p className="text-gray-600 text-sm mb-6 text-center">
+              Seleccione el tipo de recibo que desea generar
+            </p>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => imprimirReciboSeleccionado('completo')}
+                className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-between"
+              >
+                <span>📄 Recibo Completo</span>
+                <span className="text-sm opacity-90">(con precios)</span>
+              </button>
+
+              <button
+                onClick={() => imprimirReciboSeleccionado('medico')}
+                className="w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-between"
+              >
+                <span>🩺 Orden para Médico</span>
+                <span className="text-sm opacity-90">(sin precios)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowModalTipoRecibo(false);
+                  setDatosReciboTemp(null);
+                }}
+                className="w-full py-3 px-6 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-semibold transition-colors"
+              >
+                Cancelar
               </button>
             </div>
           </div>

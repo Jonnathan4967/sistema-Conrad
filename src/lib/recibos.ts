@@ -24,6 +24,7 @@ interface DatosRecibo {
   estudios: Array<{
     nombre: string;
     precio: number;
+    comentarios?: string; // ✅ NUEVO
   }>;
   total: number;
   formaPago: string;
@@ -157,7 +158,10 @@ export const generarReciboCompleto = (datos: DatosRecibo) => {
         <div class="section estudios">
           <div class="label" style="margin-bottom: 2mm;">ESTUDIOS:</div>
           ${datos.estudios.map(e => 
-            `<div class="estudio-item">• ${e.nombre}</div>`
+            `<div class="estudio-item">
+              • ${e.nombre}
+              ${e.comentarios ? `<div style="font-size: 9pt; color: #555; margin-left: 3mm; font-style: italic;">Nota: ${e.comentarios}</div>` : ''}
+            </div>`
           ).join('')}
         </div>
 
@@ -312,7 +316,10 @@ export const generarReciboMedico = (datos: DatosRecibo) => {
         <div class="section estudios">
           <div class="label" style="margin-bottom: 2mm;">ESTUDIOS SOLICITADOS:</div>
           ${datos.estudios.map(e => 
-            `<div class="estudio-item">• ${e.nombre}</div>`
+            `<div class="estudio-item">
+              • ${e.nombre}
+              ${e.comentarios ? `<div style="font-size: 9pt; color: #555; margin-left: 3mm; font-style: italic;">Nota: ${e.comentarios}</div>` : ''}
+            </div>`
           ).join('')}
         </div>
 

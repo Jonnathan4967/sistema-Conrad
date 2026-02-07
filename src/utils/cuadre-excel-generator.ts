@@ -18,10 +18,11 @@ interface CuadreDatos {
   diferencias: {
     efectivo: number;
     tarjeta: number;
-    depositado: number; // Cambio de transferencia a depositado
+    depositado: number;
   };
   cuadreCorrecto: boolean;
   observaciones?: string;
+  cajero?: string; // ✅ AGREGADO
   cuadresPorFormaPago: Array<{
     forma_pago: string;
     cantidad: number;
@@ -75,6 +76,14 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
   worksheet.getCell(`B${filaActual}`).value = 'Hora de Cuadre';
   worksheet.getCell(`B${filaActual}`).font = { bold: true };
   worksheet.getCell(`C${filaActual}`).value = datos.horaActual;
+  
+  // ✅ NUEVO: Mostrar cajero si existe
+  if (datos.cajero) {
+    filaActual++;
+    worksheet.getCell(`B${filaActual}`).value = 'Cajero';
+    worksheet.getCell(`B${filaActual}`).font = { bold: true };
+    worksheet.getCell(`C${filaActual}`).value = datos.cajero;
+  }
   
   filaActual += 2;
 
@@ -310,6 +319,45 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
     }
     filaActual++;
   });
+
+  // ✅ NUEVO: Sección de Firma Digital (si hay cajero)
+  if (datos.cajero) {
+    filaActual += 2;
+    
+    worksheet.mergeCells(`A${filaActual}:F${filaActual}`);
+    const cellFirmaHeader = worksheet.getCell(`A${filaActual}`);
+    cellFirmaHeader.value = 'FIRMA DIGITAL';
+    cellFirmaHeader.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+    cellFirmaHeader.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF70AD47' }
+    };
+    cellFirmaHeader.alignment = { horizontal: 'center', vertical: 'middle' };
+    cellFirmaHeader.border = {
+      top: { style: 'thin' },
+      bottom: { style: 'thin' },
+      left: { style: 'thin' },
+      right: { style: 'thin' }
+    };
+    filaActual++;
+
+    worksheet.getCell(`B${filaActual}`).value = 'Cajero Responsable:';
+    worksheet.getCell(`B${filaActual}`).font = { bold: true };
+    worksheet.getCell(`C${filaActual}`).value = datos.cajero;
+    worksheet.getCell(`C${filaActual}`).font = { bold: true, color: { argb: 'FF70AD47' } };
+    
+    filaActual++;
+    worksheet.getCell(`B${filaActual}`).value = 'Fecha y Hora de Cierre:';
+    worksheet.getCell(`B${filaActual}`).font = { bold: true };
+    worksheet.getCell(`C${filaActual}`).value = `${datos.fecha} ${datos.horaActual}`;
+    
+    filaActual++;
+    worksheet.getCell(`B${filaActual}`).value = 'Estado:';
+    worksheet.getCell(`B${filaActual}`).font = { bold: true };
+    worksheet.getCell(`C${filaActual}`).value = '🔒 CAJA CERRADA Y CONFIRMADA';
+    worksheet.getCell(`C${filaActual}`).font = { bold: true, color: { argb: 'FF70AD47' } };
+  }
 
   // Generar y descargar
   const buffer = await workbook.xlsx.writeBuffer();

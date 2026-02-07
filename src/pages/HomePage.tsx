@@ -43,8 +43,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [estudioSeleccionado, setEstudioSeleccionado] = useState('');
   const [subEstudioSeleccionado, setSubEstudioSeleccionado] = useState('');
   
-  // ✅ NUEVO: Estado con campo es_referido
-  const [descripcion, setDescripcion] = useState<(DetalleConsulta & { es_referido: boolean })[]>([]);
+  // ✅ NUEVO: Estado con campos es_referido y comentarios
+  const [descripcion, setDescripcion] = useState<(DetalleConsulta & { es_referido: boolean; comentarios?: string })[]>([]);
   
   const [requiereFactura, setRequiereFactura] = useState(false);
   const [nit, setNit] = useState('');
@@ -58,6 +58,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [pagosMultiples, setPagosMultiples] = useState<PagoMultiple[]>([
     { forma_pago: 'efectivo', monto: 0 }
   ]);
+
+  // ✅ NUEVO: Estado para modal de selección de recibo
+  const [showModalTipoRecibo, setShowModalTipoRecibo] = useState(false);
+  const [datosReciboTemp, setDatosReciboTemp] = useState<any>(null);
 
   const esHorarioNormal = () => {
     const now = new Date();
@@ -177,12 +181,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       ? subEstudio.precio_social 
       : subEstudio.precio_especial;
 
-    // ✅ NUEVO: Agregar con campo es_referido = true por defecto
+    // ✅ NUEVO: Agregar con campos es_referido y comentarios
     const nuevoDetalle = {
       sub_estudio_id: subEstudio.id!,
       precio,
       consulta_id: '',
-      es_referido: true // Por defecto, sí genera comisión
+      es_referido: true, // Por defecto, sí genera comisión
+      comentarios: '' // Campo vacío por defecto
     };
 
     setDescripcion([...descripcion, nuevoDetalle]);
@@ -198,6 +203,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const toggleReferido = (index: number) => {
     const nuevaDescripcion = [...descripcion];
     nuevaDescripcion[index].es_referido = !nuevaDescripcion[index].es_referido;
+    setDescripcion(nuevaDescripcion);
+  };
+
+  // ✅ NUEVO: Actualizar comentarios de un estudio
+  const actualizarComentarios = (index: number, comentarios: string) => {
+    const nuevaDescripcion = [...descripcion];
+    nuevaDescripcion[index].comentarios = comentarios;
     setDescripcion(nuevaDescripcion);
   };
 
@@ -388,10 +400,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       }
 
       // ✅ NUEVO: Preparar JSON de pagos múltiples
-      const pagosMultiplesJSON = formaPago === 'multiple' ? {
-        usar_multiples: true,
-        pagos: pagosMultiples
-      } : null;
+      const detallePagosMultiples = formaPago === 'multiple' ? pagosMultiples : null;
 
       const { data: consultaData, error: consultaError } = await supabase
         .from('consultas')
@@ -403,7 +412,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           tipo_cobro: tipoCobro,
           requiere_factura: requiereFactura,
           nit: requiereFactura ? nit : null,
-          forma_pago: formaPago,
+          forma_pago: formaPago === 'multiple' ? 'pago_multiple' : formaPago, // ✅ CORREGIDO
           numero_factura: numeroFactura || null,
           numero_transferencia: formaPago === 'transferencia' ? numeroTransferencia : null,
           numero_voucher: formaPago === 'tarjeta' ? numeroVoucher : null,
@@ -416,19 +425,20 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           movil_incluye_informe: esServicioMovil ? incluyeInforme : null,
           movil_precio_informe: esServicioMovil && incluyeInforme ? precioInforme : null,
           movil_establecimiento: esServicioMovil ? establecimientoMovil : null,
-          pagos_multiples: pagosMultiplesJSON // ✅ NUEVO
+          detalle_pagos_multiples: detallePagosMultiples // ✅ CORREGIDO: usar el nombre correcto del campo
         }])
         .select()
         .single();
 
       if (consultaError) throw consultaError;
 
-      // ✅ NUEVO: Insertar detalles con campo es_referido
+      // ✅ NUEVO: Insertar detalles con campos es_referido y comentarios
       const detalles = descripcion.map(d => ({
         consulta_id: consultaData.id,
         sub_estudio_id: d.sub_estudio_id,
         precio: d.precio,
-        es_referido: d.es_referido // ✅ NUEVO
+        es_referido: d.es_referido, // ✅ NUEVO
+        comentarios: d.comentarios || null // ✅ NUEVO: guardar solo si tiene valor
       }));
 
       const { error: detallesError } = await supabase
@@ -470,7 +480,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         const subEstudio = subEstudios.find(se => se.id === d.sub_estudio_id);
         return {
           nombre: subEstudio?.nombre || 'Estudio',
-          precio: d.precio
+          precio: d.precio,
+          comentarios: d.comentarios || undefined // ✅ NUEVO: Incluir comentarios
         };
       });
 
@@ -478,13 +489,15 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         if (incluyePlacas) {
           estudiosRecibo.push({
             nombre: '📋 Placas (Extra)',
-            precio: precioPlacas
+            precio: precioPlacas,
+            comentarios: undefined // ✅ Agregar para coincidir con tipo
           });
         }
         if (incluyeInforme) {
           estudiosRecibo.push({
             nombre: '📄 Informe (Extra)',
-            precio: precioInforme
+            precio: precioInforme,
+            comentarios: undefined // ✅ Agregar para coincidir con tipo
           });
         }
       }
@@ -509,31 +522,37 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         sinInfoMedico
       };
 
-      const tipoRecibo = confirm(
-        '¿Qué recibo desea imprimir?\n\n' +
-        'Aceptar (OK) = Recibo Completo (con precios)\n' +
-        'Cancelar = Orden para Médico (sin precios)'
-      );
-
-      if (tipoRecibo) {
-        const htmlCompleto = generarReciboCompleto(datosRecibo);
-        abrirRecibo(htmlCompleto, 'Recibo Completo');
-      } else {
-        const htmlMedico = generarReciboMedico(datosRecibo);
-        abrirRecibo(htmlMedico, 'Orden Médico');
-      }
-
-      setTimeout(() => {
-        const nuevaConsulta = confirm('✅ Recibo impreso.\n\n¿Desea crear una nueva consulta?');
-        if (nuevaConsulta) {
-          handleLimpiar();
-        }
-      }, 500);
+      // ✅ NUEVO: Guardar datos y mostrar modal en lugar de confirm
+      setDatosReciboTemp(datosRecibo);
+      setShowModalTipoRecibo(true);
       
     } catch (error) {
       console.error('Error al imprimir:', error);
       alert('❌ Error al imprimir el recibo: ' + (error as any).message);
     }
+  };
+
+  // ✅ NUEVA FUNCIÓN: Imprimir recibo seleccionado
+  const imprimirReciboSeleccionado = (tipoRecibo: 'completo' | 'medico') => {
+    if (!datosReciboTemp) return;
+
+    if (tipoRecibo === 'completo') {
+      const htmlCompleto = generarReciboCompleto(datosReciboTemp);
+      abrirRecibo(htmlCompleto, 'Recibo Completo');
+    } else {
+      const htmlMedico = generarReciboMedico(datosReciboTemp);
+      abrirRecibo(htmlMedico, 'Orden Médico');
+    }
+
+    setShowModalTipoRecibo(false);
+    setDatosReciboTemp(null);
+
+    setTimeout(() => {
+      const nuevaConsulta = confirm('✅ Recibo impreso.\n\n¿Desea crear una nueva consulta?');
+      if (nuevaConsulta) {
+        handleLimpiar();
+      }
+    }, 500);
   };
 
   // ✅ NUEVO: Agregar pago al modal
@@ -936,66 +955,105 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   {descripcion.map((item, index) => {
                     const subEstudio = subEstudios.find(se => se.id === item.sub_estudio_id);
                     return (
-                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded border-l-4" 
+                      <div key={index} className="p-3 bg-gray-50 rounded border-l-4" 
                         style={{ borderLeftColor: item.es_referido ? '#10b981' : '#94a3b8' }}>
-                        <div className="flex-1">
-                          <div className="font-medium flex items-center gap-2">
-                            {subEstudio?.nombre}
-                            {/* ✅ NUEVO: Badge de referido */}
-                            {item.es_referido ? (
-                              <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
-                                ✓ Genera comisión
-                              </span>
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1">
+                            <div className="font-medium flex items-center gap-2">
+                              {subEstudio?.nombre}
+                              {/* ✅ NUEVO: Badge de referido */}
+                              {item.es_referido ? (
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
+                                  ✓ Genera comisión
+                                </span>
+                              ) : (
+                                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                  Sin comisión
+                                </span>
+                              )}
+                            </div>
+                            {tipoCobro === 'personalizado' ? (
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-sm text-gray-600">Q</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={item.precio}
+                                  onChange={(e) => {
+                                    const nuevaDescripcion = [...descripcion];
+                                    nuevaDescripcion[index].precio = parseFloat(e.target.value) || 0;
+                                    setDescripcion(nuevaDescripcion);
+                                  }}
+                                  className="w-24 px-2 py-1 border border-purple-300 rounded focus:ring-2 focus:ring-purple-500"
+                                  disabled={!!consultaGuardada}
+                                />
+                              </div>
                             ) : (
-                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                                Sin comisión
-                              </span>
+                              <div className="text-sm text-gray-600">Q {item.precio.toFixed(2)}</div>
                             )}
                           </div>
-                          {tipoCobro === 'personalizado' ? (
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="text-sm text-gray-600">Q</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={item.precio}
-                                onChange={(e) => {
-                                  const nuevaDescripcion = [...descripcion];
-                                  nuevaDescripcion[index].precio = parseFloat(e.target.value) || 0;
-                                  setDescripcion(nuevaDescripcion);
-                                }}
-                                className="w-24 px-2 py-1 border border-purple-300 rounded focus:ring-2 focus:ring-purple-500"
-                                disabled={!!consultaGuardada}
-                              />
-                            </div>
-                          ) : (
-                            <div className="text-sm text-gray-600">Q {item.precio.toFixed(2)}</div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {/* ✅ NUEVO: Toggle de referido */}
-                          {!consultaGuardada && medicoActual && !sinInfoMedico && (
+                          <div className="flex items-center gap-2">
+                            {/* ✅ NUEVO: Toggle de referido */}
+                            {!consultaGuardada && medicoActual && !sinInfoMedico && (
+                              <button
+                                onClick={() => toggleReferido(index)}
+                                className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
+                                  item.es_referido 
+                                    ? 'bg-green-500 text-white hover:bg-green-600' 
+                                    : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+                                }`}
+                                title={item.es_referido ? 'Click para no generar comisión' : 'Click para generar comisión'}
+                              >
+                                {item.es_referido ? '✓ Referido' : 'No referido'}
+                              </button>
+                            )}
                             <button
-                              onClick={() => toggleReferido(index)}
-                              className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
-                                item.es_referido 
-                                  ? 'bg-green-500 text-white hover:bg-green-600' 
-                                  : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
-                              }`}
-                              title={item.es_referido ? 'Click para no generar comisión' : 'Click para generar comisión'}
+                              onClick={() => eliminarDeDescripcion(index)}
+                              className="text-red-600 hover:text-red-800 p-1"
+                              disabled={!!consultaGuardada}
                             >
-                              {item.es_referido ? '✓ Referido' : 'No referido'}
+                              <Trash2 size={18} />
                             </button>
-                          )}
-                          <button
-                            onClick={() => eliminarDeDescripcion(index)}
-                            className="text-red-600 hover:text-red-800 p-1"
-                            disabled={!!consultaGuardada}
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          </div>
                         </div>
+                        
+                        {/* ✅ NUEVO: Campo de comentarios opcional */}
+                        {!consultaGuardada && (
+                          <div className="mt-2 border-t pt-2">
+                            <label className="flex items-center text-xs text-gray-600 mb-1">
+                              <input
+                                type="checkbox"
+                                checked={!!item.comentarios && item.comentarios.trim() !== ''}
+                                onChange={(e) => {
+                                  if (!e.target.checked) {
+                                    actualizarComentarios(index, '');
+                                  }
+                                }}
+                                className="mr-2"
+                              />
+                              Agregar comentarios opcionales
+                            </label>
+                            {(item.comentarios !== undefined && item.comentarios !== '' ) || item.comentarios === '' ? (
+                              <textarea
+                                value={item.comentarios || ''}
+                                onChange={(e) => actualizarComentarios(index, e.target.value)}
+                                placeholder="Comentarios adicionales sobre este estudio..."
+                                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 resize-none"
+                                rows={2}
+                                maxLength={500}
+                              />
+                            ) : null}
+                          </div>
+                        )}
+                        
+                        {/* Mostrar comentarios si ya está guardada */}
+                        {consultaGuardada && item.comentarios && item.comentarios.trim() !== '' && (
+                          <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                            <strong className="text-blue-700">Comentarios:</strong>
+                            <p className="text-gray-700 mt-1">{item.comentarios}</p>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1389,6 +1447,49 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 className="btn-primary"
               >
                 Confirmar Pagos
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ NUEVO: Modal de selección de tipo de recibo */}
+      {showModalTipoRecibo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-4 text-center">
+              ¿Qué recibo desea imprimir?
+            </h2>
+            
+            <p className="text-gray-600 text-sm mb-6 text-center">
+              Seleccione el tipo de recibo que desea generar
+            </p>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => imprimirReciboSeleccionado('completo')}
+                className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-between"
+              >
+                <span>📄 Recibo Completo</span>
+                <span className="text-sm opacity-90">(con precios)</span>
+              </button>
+
+              <button
+                onClick={() => imprimirReciboSeleccionado('medico')}
+                className="w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-between"
+              >
+                <span>🩺 Orden para Médico</span>
+                <span className="text-sm opacity-90">(sin precios)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowModalTipoRecibo(false);
+                  setDatosReciboTemp(null);
+                }}
+                className="w-full py-3 px-6 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-semibold transition-colors"
+              >
+                Cancelar
               </button>
             </div>
           </div>

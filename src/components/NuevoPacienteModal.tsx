@@ -17,7 +17,10 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
   onSave
 }) => {
   // Estado del paciente
-  const [nombrePaciente, setNombrePaciente] = useState('');
+  const [primerNombre, setPrimerNombre] = useState('');
+  const [segundoNombre, setSegundoNombre] = useState('');
+  const [primerApellido, setPrimerApellido] = useState('');
+  const [segundoApellido, setSegundoApellido] = useState('');
   const [edadPaciente, setEdadPaciente] = useState('');
   const [tipoEdad, setTipoEdad] = useState<'años' | 'meses' | 'días'>('años');
   const [telefonoPaciente, setTelefonoPaciente] = useState('');
@@ -96,7 +99,10 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
 
   // Resetear formulario
   const resetForm = () => {
-    setNombrePaciente('');
+    setPrimerNombre('');
+    setSegundoNombre('');
+    setPrimerApellido('');
+    setSegundoApellido('');
     setEdadPaciente('');
     setTelefonoPaciente('');
     setDepartamentoPaciente('');
@@ -115,8 +121,8 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
   // Guardar
   const handleGuardar = () => {
     // Validar datos del paciente (con trim para eliminar espacios)
-    if (!nombrePaciente.trim() || !edadPaciente || !telefonoPaciente.trim() || !departamentoPaciente || !municipioPaciente) {
-      alert('Por favor complete todos los campos del paciente');
+    if (!primerNombre.trim() || !primerApellido.trim() || !edadPaciente || !telefonoPaciente.trim() || !departamentoPaciente || !municipioPaciente) {
+      alert('Por favor complete todos los campos obligatorios del paciente:\n- Primer Nombre\n- Primer Apellido\n- Edad\n- Teléfono\n- Departamento\n- Municipio');
       return;
     }
 
@@ -138,8 +144,20 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
       edadEnAnios = Math.floor(edadEnAnios / 365);
     }
 
+    // Concatenar nombre completo
+    const nombreCompleto = [
+      primerNombre.trim(),
+      segundoNombre.trim(),
+      primerApellido.trim(),
+      segundoApellido.trim()
+    ].filter(Boolean).join(' ');
+
     const paciente: Paciente = {
-      nombre: nombrePaciente,
+      nombre: nombreCompleto,
+      primer_nombre: primerNombre.trim(),
+      segundo_nombre: segundoNombre.trim() || undefined,
+      primer_apellido: primerApellido.trim(),
+      segundo_apellido: segundoApellido.trim() || undefined,
       edad: edadEnAnios || 0,
       edad_valor: parseInt(edadPaciente), // Valor original
       edad_tipo: tipoEdad, // días, meses, años
@@ -200,14 +218,52 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
             <h3 className="text-xl font-semibold mb-4 text-blue-700">Datos del Paciente</h3>
             
             <div className="space-y-4">
+              {/* Primer Nombre */}
               <div>
-                <label className="label">Nombre <span className="text-red-500">*</span></label>
+                <label className="label">Primer Nombre <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   className="input-field"
-                  value={nombrePaciente}
-                  onChange={(e) => setNombrePaciente(e.target.value)}
-                  placeholder="Nombre completo del paciente"
+                  value={primerNombre}
+                  onChange={(e) => setPrimerNombre(e.target.value)}
+                  placeholder="Ej: Juan"
+                  autoFocus
+                />
+              </div>
+
+              {/* Segundo Nombre */}
+              <div>
+                <label className="label">Segundo Nombre (opcional)</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={segundoNombre}
+                  onChange={(e) => setSegundoNombre(e.target.value)}
+                  placeholder="Ej: Carlos"
+                />
+              </div>
+
+              {/* Primer Apellido */}
+              <div>
+                <label className="label">Primer Apellido <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={primerApellido}
+                  onChange={(e) => setPrimerApellido(e.target.value)}
+                  placeholder="Ej: Pérez"
+                />
+              </div>
+
+              {/* Segundo Apellido */}
+              <div>
+                <label className="label">Segundo Apellido (opcional)</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={segundoApellido}
+                  onChange={(e) => setSegundoApellido(e.target.value)}
+                  placeholder="Ej: García"
                 />
               </div>
 

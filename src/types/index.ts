@@ -1,7 +1,11 @@
 // Tipos de datos principales
 export interface Paciente {
   id?: string;
-  nombre: string;
+  nombre: string; // Nombre completo concatenado
+  primer_nombre?: string;
+  segundo_nombre?: string;
+  primer_apellido?: string;
+  segundo_apellido?: string;
   edad: number;
   edad_valor?: number; // Valor original (15 días, 3 meses, etc)
   edad_tipo?: 'días' | 'meses' | 'años'; // Tipo de edad
@@ -47,11 +51,19 @@ export interface Consulta {
   tipo_cobro: 'normal' | 'social' | 'especial';
   requiere_factura: boolean;
   nit?: string;
-  forma_pago: 'efectivo' | 'tarjeta' | 'transferencia' | 'efectivo_facturado' | 'estado_cuenta';
+  forma_pago: 'efectivo' | 'tarjeta' | 'transferencia' | 'efectivo_facturado' | 'estado_cuenta' | 'pago_multiple';
   numero_factura?: string;
   sin_informacion_medico: boolean;
   fecha: string;
+  detalle_pagos_multiples?: PagoMultiple[]; // Para pagos múltiples
   created_at?: string;
+}
+
+// Nueva interfaz para pagos múltiples
+export interface PagoMultiple {
+  forma_pago: 'efectivo' | 'tarjeta' | 'transferencia' | 'efectivo_facturado';
+  monto: number;
+  numero_referencia?: string;
 }
 
 export interface DetalleConsulta {
@@ -59,6 +71,7 @@ export interface DetalleConsulta {
   consulta_id: string;
   sub_estudio_id: string;
   precio: number;
+  comentarios?: string; // Comentarios adicionales opcionales
   created_at?: string;
 }
 
@@ -84,7 +97,7 @@ export interface Municipio {
 }
 
 export type TipoCobro = 'normal' | 'social' | 'especial' | 'personalizado';
-export type FormaPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'efectivo_facturado' | 'estado_cuenta';
+export type FormaPago = 'efectivo' | 'tarjeta' | 'transferencia' | 'efectivo_facturado' | 'estado_cuenta' | 'pago_multiple';
 
 // ===== TIPOS DEL MÓDULO DE INVENTARIO =====
 

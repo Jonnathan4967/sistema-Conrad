@@ -8,7 +8,10 @@ import {
   FileText,
   Users,
   Download,
-  Clock
+  Clock,
+  Lock,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
@@ -24,7 +27,23 @@ interface ContabilidadPageProps {
 
 type Vista = 'dashboard' | 'ingresos' | 'gastos' | 'proveedores' | 'reportes' | 'comisiones';
 
+// ✅ CONTRASEÑA DE ACCESO AL MÓDULO DE CONTABILIDAD
+const CONTRASENA_CONTABILIDAD = 'CONRAD2025'; // Cambia esta contraseña según necesites
+
+// ✅ INTERFAZ NUEVA para el componente de resumen
+interface CuadrePorFormaPago {
+  forma_pago: string;
+  cantidad: number;
+  total: number;
+}
+
 export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) => {
+  // ✅ Estados de autenticación
+  const [autenticado, setAutenticado] = useState(false);
+  const [contrasenaInput, setContrasenaInput] = useState('');
+  const [errorContrasena, setErrorContrasena] = useState('');
+  const [mostrarContrasena, setMostrarContrasena] = useState(false);
+  
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(false);
@@ -50,8 +69,48 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
   ];
 
   useEffect(() => {
-    cargarDatos();
-  }, [mes, anio]);
+    // Verificar si ya está autenticado en esta sesión
+    const authContabilidad = sessionStorage.getItem('contabilidad_autenticado');
+    if (authContabilidad === 'true') {
+      setAutenticado(true);
+      cargarDatos();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (autenticado) {
+      cargarDatos();
+    }
+  }, [mes, anio, autenticado]);
+
+  const verificarContrasena = () => {
+    if (contrasenaInput === CONTRASENA_CONTABILIDAD) {
+      setAutenticado(true);
+      sessionStorage.setItem('contabilidad_autenticado', 'true');
+      setErrorContrasena('');
+      setContrasenaInput('');
+    } else {
+      setErrorContrasena('❌ Contraseña incorrecta');
+      setContrasenaInput('');
+      // Limpiar error después de 3 segundos
+      setTimeout(() => setErrorContrasena(''), 3000);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      verificarContrasena();
+    }
+  };
+
+  const cerrarSesion = () => {
+    if (confirm('¿Desea cerrar la sesión del módulo de Contabilidad?')) {
+      setAutenticado(false);
+      sessionStorage.removeItem('contabilidad_autenticado');
+      setVistaActual('dashboard');
+      onBack();
+    }
+  };
 
   const cargarDatos = async () => {
     setLoading(true);
@@ -195,6 +254,79 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
     return <ComisionesPagarPage onBack={() => setVistaActual('dashboard')} />;
   }
 
+  // ✅ PANTALLA DE AUTENTICACIÓN
+  if (!autenticado) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-green-600 to-blue-600 rounded-full mb-4">
+              <Lock className="text-white" size={40} />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Módulo de Contabilidad</h1>
+            <p className="text-gray-600">Ingrese la contraseña para acceder</p>
+          </div>
+
+          <div className="space-y-4">
+            <div className="relative">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Contraseña
+              </label>
+              <div className="relative">
+                <input
+                  type={mostrarContrasena ? "text" : "password"}
+                  value={contrasenaInput}
+                  onChange={(e) => {
+                    setContrasenaInput(e.target.value);
+                    setErrorContrasena('');
+                  }}
+                  onKeyPress={handleKeyPress}
+                  className={`w-full px-4 py-3 pr-12 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors ${
+                    errorContrasena ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Ingrese la contraseña"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarContrasena(!mostrarContrasena)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                >
+                  {mostrarContrasena ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+              {errorContrasena && (
+                <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
+                  {errorContrasena}
+                </p>
+              )}
+            </div>
+
+            <button
+              onClick={verificarContrasena}
+              className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-all transform hover:scale-105 active:scale-95"
+            >
+              Ingresar al Módulo
+            </button>
+
+            <button
+              onClick={onBack}
+              className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-3 px-6 rounded-lg transition-colors"
+            >
+              Volver al Dashboard
+            </button>
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <p className="text-center text-xs text-gray-500">
+              🔒 Acceso restringido solo para personal autorizado
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Vista Dashboard
   return (
     <div className="min-h-screen bg-gray-50">
@@ -322,6 +454,9 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
             </div>
           </div>
         </div>
+
+        {/* ✅ NUEVO: Resumen de Ventas por Método - DATOS DEL DÍA ACTUAL */}
+        <ResumenVentasDelDia mes={mes} anio={anio} />
 
         {/* ✅ DESGLOSE DE INGRESOS - VERSIÓN COLAPSABLE */}
         {totales.ingresosMoviles > 0 && (
@@ -462,6 +597,163 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
             <li>• Los reportes se generan en formato Excel</li>
           </ul>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ✅ COMPONENTE NUEVO: Resumen de Ventas por Método
+interface ResumenVentasDelDiaProps {
+  mes: number;
+  anio: number;
+}
+
+const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) => {
+  const [loading, setLoading] = useState(false);
+  const [ventasPorMetodo, setVentasPorMetodo] = useState<CuadrePorFormaPago[]>([]);
+  const [fechaSeleccionada, setFechaSeleccionada] = useState(() => {
+    const hoy = new Date();
+    return hoy.toISOString().split('T')[0];
+  });
+
+  useEffect(() => {
+    cargarVentasDelDia();
+  }, [fechaSeleccionada]);
+
+  const cargarVentasDelDia = async () => {
+    setLoading(true);
+    try {
+      const { data: consultas } = await supabase
+        .from('consultas')
+        .select(`
+          forma_pago,
+          detalle_consultas(precio)
+        `)
+        .eq('fecha', fechaSeleccionada)
+        .or('anulado.is.null,anulado.eq.false')
+        .or('es_servicio_movil.is.null,es_servicio_movil.eq.false');
+
+      const cuadrePorForma: { [key: string]: CuadrePorFormaPago } = {};
+      
+      consultas?.forEach((consulta: any) => {
+        const total = consulta.detalle_consultas?.reduce((sum: number, d: any) => sum + d.precio, 0) || 0;
+        const formaPago = consulta.forma_pago;
+
+        if (!cuadrePorForma[formaPago]) {
+          cuadrePorForma[formaPago] = {
+            forma_pago: formaPago,
+            cantidad: 0,
+            total: 0
+          };
+        }
+
+        cuadrePorForma[formaPago].cantidad += 1;
+        cuadrePorForma[formaPago].total += total;
+      });
+
+      setVentasPorMetodo(Object.values(cuadrePorForma));
+    } catch (error) {
+      console.error('Error al cargar ventas:', error);
+    }
+    setLoading(false);
+  };
+
+  const getFormaPagoNombre = (forma: string) => {
+    const formas: any = {
+      efectivo: 'EFECTIVO',
+      tarjeta: 'TARJETA',
+      transferencia: 'TRANSFERENCIA',
+      efectivo_facturado: 'DEPÓSITO',
+      estado_cuenta: 'ESTADO DE CUENTA', // ✅ AÑADIDO
+      multiple: 'Múltiple'
+    };
+    return formas[forma] || forma;
+  };
+
+  // Calcular totales generales
+  const totalGeneral = ventasPorMetodo.reduce((sum, m) => sum + m.total, 0);
+  const totalConsultas = ventasPorMetodo.reduce((sum, m) => sum + m.cantidad, 0);
+
+  return (
+    <div className="mb-8">
+      <div className="grid md:grid-cols-4 gap-4">
+        {/* Tarjeta Principal: Total del Día */}
+        <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-lg shadow-lg p-6 text-white hover:shadow-xl transition-shadow">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <FileText size={20} />
+              <h3 className="font-semibold text-sm">Ventas del Día</h3>
+            </div>
+            <input
+              type="date"
+              className="px-2 py-1 border border-indigo-300 rounded text-xs text-gray-900 focus:ring-2 focus:ring-white"
+              value={fechaSeleccionada}
+              onChange={(e) => setFechaSeleccionada(e.target.value)}
+            />
+          </div>
+          
+          {loading ? (
+            <div className="text-center py-4">
+              <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+            </div>
+          ) : (
+            <>
+              <p className="text-3xl font-bold mb-1">
+                Q {totalGeneral.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+              </p>
+              <p className="text-indigo-100 text-sm">
+                {totalConsultas} consulta{totalConsultas !== 1 ? 's' : ''} registrada{totalConsultas !== 1 ? 's' : ''}
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Tarjetas de Métodos de Pago */}
+        {loading ? (
+          <div className="col-span-3 flex items-center justify-center py-8">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-blue-600"></div>
+          </div>
+        ) : ventasPorMetodo.length === 0 ? (
+          <div className="col-span-3 flex items-center justify-center py-8 bg-gray-50 rounded-lg">
+            <p className="text-gray-500">No hay ventas registradas en esta fecha</p>
+          </div>
+        ) : (
+          <>
+            {ventasPorMetodo.slice(0, 3).map(metodo => (
+              <div key={metodo.forma_pago} className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow border-l-4 border-blue-500">
+                <p className="text-gray-600 text-xs font-semibold mb-2 uppercase tracking-wide">
+                  {getFormaPagoNombre(metodo.forma_pago)}
+                </p>
+                <p className="text-3xl font-bold text-blue-600 mb-1">
+                  Q {metodo.total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                </p>
+                <p className="text-gray-500 text-sm">
+                  {metodo.cantidad} consulta{metodo.cantidad !== 1 ? 's' : ''}
+                </p>
+              </div>
+            ))}
+            
+            {/* Si hay más de 3 métodos, mostrarlos en una segunda fila */}
+            {ventasPorMetodo.length > 3 && (
+              <>
+                <div className="md:col-span-1"></div>
+                {ventasPorMetodo.slice(3).map(metodo => (
+                  <div key={metodo.forma_pago} className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow border-l-4 border-blue-500">
+                    <p className="text-gray-600 text-xs font-semibold mb-2 uppercase tracking-wide">
+                      {getFormaPagoNombre(metodo.forma_pago)}
+                    </p>
+                    <p className="text-3xl font-bold text-blue-600 mb-1">
+                      Q {metodo.total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-gray-500 text-sm">
+                      {metodo.cantidad} consulta{metodo.cantidad !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                ))}
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

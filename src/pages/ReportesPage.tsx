@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { Toast } from '../components/Toast';
 import { useToast } from '../hooks';
-import { generarReporteExcel, generarReporteMoviles } from '../utils/excel-generator';
+import { generarReporteExcel, generarReporteMoviles, generarReporteMensualUnificado } from '../utils/excel-generator';
 
 interface ReportesPageProps {
   onBack: () => void;
@@ -12,7 +12,7 @@ interface ReportesPageProps {
 
 export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
   const [generando, setGenerando] = useState(false);
-  const [tipoReporte, setTipoReporte] = useState<'dia' | 'rango' | 'mes'>('mes');
+  const [tipoReporte, setTipoReporte] = useState<'dia' | 'mes'>('dia'); // ✅ Eliminado 'rango'
   const [fechaUnica, setFechaUnica] = useState(new Date().toISOString().split('T')[0]);
   const [fechaInicio, setFechaInicio] = useState(new Date().toISOString().split('T')[0]);
   const [fechaFin, setFechaFin] = useState(new Date().toISOString().split('T')[0]);
@@ -51,13 +51,8 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
         const fecha = new Date(fechaUnica);
         mesReporte = fecha.getMonth() + 1;
         anioReporte = fecha.getFullYear();
-      } else if (tipoReporte === 'rango') {
-        primerDia = fechaInicio;
-        ultimoDia = fechaFin;
-        const fecha = new Date(fechaInicio);
-        mesReporte = fecha.getMonth() + 1;
-        anioReporte = fecha.getFullYear();
       } else {
+        // Mes completo
         primerDia = new Date(anio, mes - 1, 1).toISOString().split('T')[0];
         ultimoDia = new Date(anio, mes, 0).toISOString().split('T')[0];
         mesReporte = mes;
@@ -79,12 +74,14 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
             numero_factura,
             nit,
             numero_voucher,
-            numero_transferencia
+            numero_transferencia,
+            comentarios
           )
         `)
         .gte('fecha', primerDia)
         .lte('fecha', ultimoDia)
-        .order('fecha', { ascending: true });
+        .order('fecha', { ascending: true })
+        .order('created_at', { ascending: true }); // ✅ Ordenar por hora de llegada
 
       if (error) throw error;
 
@@ -102,7 +99,14 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
       }
 
       showToast('Generando archivo Excel...', 'info');
-      await generarReporteExcel(mesReporte, anioReporte, consultas);
+      
+      // ✅ Usar reporte unificado para mes completo, normal para un día
+      if (tipoReporte === 'mes') {
+        await generarReporteMensualUnificado(mesReporte, anioReporte, consultas);
+      } else {
+        await generarReporteExcel(mesReporte, anioReporte, consultas);
+      }
+      
       showToast('¡Reporte generado y descargado exitosamente!', 'success');
     } catch (error) {
       console.error('Error:', error);
@@ -112,7 +116,6 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
     }
   };
 
-  // ✅ NUEVA FUNCIÓN PARA REPORTE DE MÓVILES
   const handleGenerarReporteMoviles = async () => {
     setGenerando(true);
     try {
@@ -126,13 +129,8 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
         const fecha = new Date(fechaUnica);
         mesReporte = fecha.getMonth() + 1;
         anioReporte = fecha.getFullYear();
-      } else if (tipoReporte === 'rango') {
-        primerDia = fechaInicio;
-        ultimoDia = fechaFin;
-        const fecha = new Date(fechaInicio);
-        mesReporte = fecha.getMonth() + 1;
-        anioReporte = fecha.getFullYear();
       } else {
+        // Mes completo
         primerDia = new Date(anio, mes - 1, 1).toISOString().split('T')[0];
         ultimoDia = new Date(anio, mes, 0).toISOString().split('T')[0];
         mesReporte = mes;
@@ -154,13 +152,15 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
             numero_factura,
             nit,
             numero_voucher,
-            numero_transferencia
+            numero_transferencia,
+            comentarios
           )
         `)
         .gte('fecha', primerDia)
         .lte('fecha', ultimoDia)
         .eq('es_servicio_movil', true)
-        .order('fecha', { ascending: true });
+        .order('fecha', { ascending: true })
+        .order('created_at', { ascending: true }); // ✅ Ordenar por hora de llegada
 
       if (error) throw error;
 
@@ -263,7 +263,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
           <div className="border-t pt-6">
             <h3 className="font-bold text-gray-800 mb-4">Selecciona el tipo de reporte</h3>
             
-            <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-2 gap-4 mb-6">
               <button
                 onClick={() => setTipoReporte('dia')}
                 className={`p-4 rounded-lg border-2 transition-all ${
@@ -277,18 +277,6 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
               </button>
 
               <button
-                onClick={() => setTipoReporte('rango')}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  tipoReporte === 'rango'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 hover:border-blue-300'
-                }`}
-              >
-                <Calendar className="mx-auto mb-2" size={24} />
-                <p className="font-semibold text-sm">Rango de Días</p>
-              </button>
-
-              <button
                 onClick={() => setTipoReporte('mes')}
                 className={`p-4 rounded-lg border-2 transition-all ${
                   tipoReporte === 'mes'
@@ -297,7 +285,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
                 }`}
               >
                 <Calendar className="mx-auto mb-2" size={24} />
-                <p className="font-semibold text-sm">Mes Completo</p>
+                <p className="font-semibold text-sm">Mes Completo Unificado</p>
               </button>
             </div>
 
@@ -310,29 +298,6 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
                   onChange={(e) => setFechaUnica(e.target.value)}
                   className="input-field"
                 />
-              </div>
-            )}
-
-            {tipoReporte === 'rango' && (
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div>
-                  <label className="label">Fecha Inicio</label>
-                  <input
-                    type="date"
-                    value={fechaInicio}
-                    onChange={(e) => setFechaInicio(e.target.value)}
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label className="label">Fecha Fin</label>
-                  <input
-                    type="date"
-                    value={fechaFin}
-                    onChange={(e) => setFechaFin(e.target.value)}
-                    className="input-field"
-                  />
-                </div>
               </div>
             )}
 
