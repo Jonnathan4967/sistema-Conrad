@@ -13,6 +13,7 @@ import { GestionUsuariosPage } from './pages/GestionUsuariosPage';
 import { ComisionesPage } from './pages/ComisionesPage';
 import { ContabilidadPage } from './pages/ContabilidadPage';
 import { PersonalPage } from './pages/PersonalPage';
+import { DoctoresPage } from './pages/DoctoresPage';
 
 // Módulo de Inventario
 import { InventarioHomePage } from './pages/InventarioHomePage';
@@ -159,6 +160,10 @@ function App() {
 
   if (currentModule === 'personal') {
     return <PersonalPage onBack={handleBackToDashboard} />;
+  }
+
+  if (currentModule === 'doctores') {
+    return <DoctoresPage onBack={handleBackToDashboard} />;
   }
 
   if (currentModule === 'visitadoras') {

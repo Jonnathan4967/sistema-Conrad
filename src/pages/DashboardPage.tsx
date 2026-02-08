@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Package, LogOut, FileText, Users, Banknote, UserCog } from 'lucide-react';
+import { Activity, Package, LogOut, FileText, Users, Banknote, UserCog, Stethoscope } from 'lucide-react';
 
 interface DashboardPageProps {
   onNavigateToModule: (module: string) => void;
@@ -59,6 +59,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       icon: UserCog,
       color: 'indigo',
       gradient: 'from-indigo-500 to-indigo-600',
+      disabled: false
+    },
+    {
+      id: 'doctores',
+      name: 'Módulo de Doctores',
+      description: 'Informes médicos y gestión de estudios',
+      icon: Stethoscope,
+      color: 'blue',
+      gradient: 'from-blue-500 to-indigo-600',
       disabled: false
     },
     {

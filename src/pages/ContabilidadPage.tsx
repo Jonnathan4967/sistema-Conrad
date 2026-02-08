@@ -54,6 +54,7 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
     gastosOperativos: 0,
     comisionesPagadas: 0,
     utilidad: 0,
+    ingresosSinGastosOperativos: 0, // ✅ NUEVO
     ingresosConsultas: 0,
     ingresosMoviles: 0, // ✅ NUEVO
     ingresosAdicionales: 0,
@@ -204,6 +205,7 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
 
       const totalIngresos = ingresosConsultas + ingresosMoviles + ingresosAdicionales;
       const utilidad = totalIngresos - totalGastos;
+      const ingresosSinGastosOperativos = totalIngresos - gastosOperativos; // ✅ NUEVO
 
       console.log('📊 Totales calculados:', {
         ingresosConsultas,
@@ -211,8 +213,10 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
         ingresosAdicionales,
         totalIngresos,
         totalGastos,
+        gastosOperativos,
         comisionesPendientes,
-        utilidad
+        utilidad,
+        ingresosSinGastosOperativos
       });
 
       setTotales({
@@ -221,6 +225,7 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
         gastosOperativos: gastosOperativos,
         comisionesPagadas: comisionesPagadas,
         utilidad: utilidad,
+        ingresosSinGastosOperativos: ingresosSinGastosOperativos, // ✅ NUEVO
         ingresosConsultas: ingresosConsultas,
         ingresosMoviles: ingresosMoviles, // ✅ NUEVO
         ingresosAdicionales: ingresosAdicionales,
@@ -611,9 +616,15 @@ interface ResumenVentasDelDiaProps {
 const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) => {
   const [loading, setLoading] = useState(false);
   const [ventasPorMetodo, setVentasPorMetodo] = useState<CuadrePorFormaPago[]>([]);
+  const [gastosDelDia, setGastosDelDia] = useState(0); // ✅ NUEVO
   const [fechaSeleccionada, setFechaSeleccionada] = useState(() => {
-    const hoy = new Date();
-    return hoy.toISOString().split('T')[0];
+    // ✅ Obtener fecha en zona horaria de Guatemala (GMT-6)
+    const ahora = new Date();
+    const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
+    const year = guatemalaTime.getFullYear();
+    const month = String(guatemalaTime.getMonth() + 1).padStart(2, '0');
+    const day = String(guatemalaTime.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   });
 
   useEffect(() => {
@@ -623,6 +634,7 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
   const cargarVentasDelDia = async () => {
     setLoading(true);
     try {
+      // Cargar consultas del día
       const { data: consultas } = await supabase
         .from('consultas')
         .select(`
@@ -632,6 +644,15 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
         .eq('fecha', fechaSeleccionada)
         .or('anulado.is.null,anulado.eq.false')
         .or('es_servicio_movil.is.null,es_servicio_movil.eq.false');
+
+      // ✅ NUEVO: Cargar gastos del día
+      const { data: gastos } = await supabase
+        .from('gastos')
+        .select('monto')
+        .eq('fecha', fechaSeleccionada);
+
+      const totalGastos = gastos?.reduce((sum, g) => sum + g.monto, 0) || 0;
+      setGastosDelDia(totalGastos);
 
       const cuadrePorForma: { [key: string]: CuadrePorFormaPago } = {};
       
@@ -673,79 +694,98 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
   // Calcular totales generales
   const totalGeneral = ventasPorMetodo.reduce((sum, m) => sum + m.total, 0);
   const totalConsultas = ventasPorMetodo.reduce((sum, m) => sum + m.cantidad, 0);
+  const totalNeto = totalGeneral - gastosDelDia; // ✅ NUEVO: Total menos gastos
 
   return (
     <div className="mb-8">
-      <div className="grid md:grid-cols-4 gap-4">
-        {/* Tarjeta Principal: Total del Día */}
-        <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-lg shadow-lg p-6 text-white hover:shadow-xl transition-shadow">
-          <div className="flex items-center justify-between mb-3">
+      <div className="grid md:grid-cols-5 gap-4">
+        {/* Tarjeta Principal: Total del Día - MÁS COMPACTA */}
+        <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-lg shadow-lg p-4 text-white hover:shadow-xl transition-shadow">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <FileText size={20} />
-              <h3 className="font-semibold text-sm">Ventas del Día</h3>
+              <FileText size={18} />
+              <h3 className="font-semibold text-xs">Ventas del Día</h3>
             </div>
             <input
               type="date"
-              className="px-2 py-1 border border-indigo-300 rounded text-xs text-gray-900 focus:ring-2 focus:ring-white"
+              className="px-2 py-1 border border-indigo-300 rounded text-xs text-gray-900 focus:ring-1 focus:ring-white"
               value={fechaSeleccionada}
               onChange={(e) => setFechaSeleccionada(e.target.value)}
             />
           </div>
           
           {loading ? (
-            <div className="text-center py-4">
-              <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+            <div className="text-center py-3">
+              <div className="inline-block animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
             </div>
           ) : (
             <>
-              <p className="text-3xl font-bold mb-1">
+              <p className="text-2xl font-bold mb-1">
                 Q {totalGeneral.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
               </p>
-              <p className="text-indigo-100 text-sm">
-                {totalConsultas} consulta{totalConsultas !== 1 ? 's' : ''} registrada{totalConsultas !== 1 ? 's' : ''}
+              <p className="text-indigo-100 text-xs mb-2">
+                {totalConsultas} consulta{totalConsultas !== 1 ? 's' : ''}
               </p>
+              
+              {/* ✅ Gastos y neto en formato compacto */}
+              {gastosDelDia > 0 && (
+                <div className="border-t border-indigo-400 pt-2 space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-indigo-200">Gastos del día</span>
+                    <span className="text-sm font-semibold text-red-200">
+                      - Q {gastosDelDia.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1 border-t border-indigo-400">
+                    <span className="text-xs text-indigo-200">Total Neto</span>
+                    <span className={`text-lg font-bold ${totalNeto >= 0 ? 'text-green-200' : 'text-red-200'}`}>
+                      Q {totalNeto.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
 
-        {/* Tarjetas de Métodos de Pago */}
+        {/* Tarjetas de Métodos de Pago - MÁS COMPACTAS */}
         {loading ? (
-          <div className="col-span-3 flex items-center justify-center py-8">
+          <div className="col-span-4 flex items-center justify-center py-8">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-blue-600"></div>
           </div>
         ) : ventasPorMetodo.length === 0 ? (
-          <div className="col-span-3 flex items-center justify-center py-8 bg-gray-50 rounded-lg">
-            <p className="text-gray-500">No hay ventas registradas en esta fecha</p>
+          <div className="col-span-4 flex items-center justify-center py-8 bg-gray-50 rounded-lg">
+            <p className="text-gray-500 text-sm">No hay ventas registradas en esta fecha</p>
           </div>
         ) : (
           <>
-            {ventasPorMetodo.slice(0, 3).map(metodo => (
-              <div key={metodo.forma_pago} className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow border-l-4 border-blue-500">
-                <p className="text-gray-600 text-xs font-semibold mb-2 uppercase tracking-wide">
+            {ventasPorMetodo.slice(0, 4).map(metodo => (
+              <div key={metodo.forma_pago} className="bg-white rounded-lg shadow-lg p-4 hover:shadow-xl transition-shadow border-l-4 border-blue-500">
+                <p className="text-gray-600 text-xs font-semibold mb-1 uppercase tracking-wide">
                   {getFormaPagoNombre(metodo.forma_pago)}
                 </p>
-                <p className="text-3xl font-bold text-blue-600 mb-1">
+                <p className="text-2xl font-bold text-blue-600 mb-0.5">
                   Q {metodo.total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
                 </p>
-                <p className="text-gray-500 text-sm">
+                <p className="text-gray-500 text-xs">
                   {metodo.cantidad} consulta{metodo.cantidad !== 1 ? 's' : ''}
                 </p>
               </div>
             ))}
             
-            {/* Si hay más de 3 métodos, mostrarlos en una segunda fila */}
-            {ventasPorMetodo.length > 3 && (
+            {/* Si hay más de 4 métodos, mostrarlos en una segunda fila */}
+            {ventasPorMetodo.length > 4 && (
               <>
                 <div className="md:col-span-1"></div>
-                {ventasPorMetodo.slice(3).map(metodo => (
-                  <div key={metodo.forma_pago} className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow border-l-4 border-blue-500">
-                    <p className="text-gray-600 text-xs font-semibold mb-2 uppercase tracking-wide">
+                {ventasPorMetodo.slice(4).map(metodo => (
+                  <div key={metodo.forma_pago} className="bg-white rounded-lg shadow-lg p-4 hover:shadow-xl transition-shadow border-l-4 border-blue-500">
+                    <p className="text-gray-600 text-xs font-semibold mb-1 uppercase tracking-wide">
                       {getFormaPagoNombre(metodo.forma_pago)}
                     </p>
-                    <p className="text-3xl font-bold text-blue-600 mb-1">
+                    <p className="text-2xl font-bold text-blue-600 mb-0.5">
                       Q {metodo.total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
                     </p>
-                    <p className="text-gray-500 text-sm">
+                    <p className="text-gray-500 text-xs">
                       {metodo.cantidad} consulta{metodo.cantidad !== 1 ? 's' : ''}
                     </p>
                   </div>

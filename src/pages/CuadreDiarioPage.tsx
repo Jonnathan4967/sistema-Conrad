@@ -544,7 +544,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <input
                             type="number"
                             min="0"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             value={billetes[billete.key as keyof typeof billetes]}
                             onChange={(e) => setBilletes({ ...billetes, [billete.key]: e.target.value })}
                             placeholder="0"
@@ -576,7 +576,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <input
                             type="number"
                             min="0"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             value={monedas[moneda.key as keyof typeof monedas]}
                             onChange={(e) => setMonedas({ ...monedas, [moneda.key]: e.target.value })}
                             placeholder="0"
@@ -612,7 +612,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     <input
                       type="number"
                       step="0.01"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={tarjetaContado}
                       onChange={(e) => setTarjetaContado(e.target.value)}
                       placeholder="0.00"
@@ -628,7 +628,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     <input
                       type="number"
                       step="0.01"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={transferenciaContado}
                       onChange={(e) => setTransferenciaContado(e.target.value)}
                       placeholder="0.00"
@@ -644,7 +644,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     <input
                       type="number"
                       step="0.01"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       value={estadoCuentaContado}
                       onChange={(e) => setEstadoCuentaContado(e.target.value)}
                       placeholder="0.00"
@@ -836,19 +836,47 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                       </>
                     ) : (
                       <div className="bg-red-50 border-2 border-red-500 rounded-lg p-6">
-                        <div className="flex items-center gap-3 mb-3">
+                        <div className="flex items-center gap-3 mb-4">
                           <X size={32} className="text-red-600" />
                           <div>
                             <h4 className="text-xl font-bold text-red-700">Cuadre Incorrecto</h4>
-                            <p className="text-sm text-red-600">Revise los montos ingresados y vuelva a contar</p>
+                            <p className="text-sm text-red-600">Las siguientes formas de pago NO cuadran:</p>
                           </div>
                         </div>
+
+                        <div className="space-y-2 mb-4">
+                          {diferenciaEfectivo !== 0 && (
+                            <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2">
+                              <span className="text-red-600 font-bold">✗</span>
+                              <span className="font-medium text-gray-900">💵 Efectivo</span>
+                            </div>
+                          )}
+                          {diferenciaTarjeta !== 0 && (
+                            <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2">
+                              <span className="text-red-600 font-bold">✗</span>
+                              <span className="font-medium text-gray-900">💳 Tarjeta</span>
+                            </div>
+                          )}
+                          {diferenciaDepositado !== 0 && (
+                            <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2">
+                              <span className="text-red-600 font-bold">✗</span>
+                              <span className="font-medium text-gray-900">🏦 Transferencias</span>
+                            </div>
+                          )}
+                          {diferenciaEstadoCuenta !== 0 && (
+                            <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2">
+                              <span className="text-red-600 font-bold">✗</span>
+                              <span className="font-medium text-gray-900">📋 Estado de Cuenta</span>
+                            </div>
+                          )}
+                        </div>
+
                         <button
                           onClick={() => {
                             setCuadreValidado(false);
                             setMostrarEsperados(false);
                           }}
-                          className="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium mt-4 transition-colors"
+                          className="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
                         >
                           Volver a Contar
                         </button>
