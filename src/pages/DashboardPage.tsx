@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Package, LogOut, FileText, Users, Banknote, UserCog, Stethoscope } from 'lucide-react';
+import { Activity, Package, LogOut, FileText, Users, Banknote, UserCog, Stethoscope, Calendar } from 'lucide-react';
 
 interface DashboardPageProps {
   onNavigateToModule: (module: string) => void;
@@ -10,8 +10,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onNavigateToModule, 
   onLogout 
 }) => {
+  // ✅ Obtener rol del usuario
+  const rolUsuario = localStorage.getItem('rolUsuarioConrad') || 'secretaria';
+  const nombreUsuario = localStorage.getItem('nombreUsuarioConrad') || 'Usuario';
+
   const handleLogout = () => {
     localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('rolUsuarioConrad'); // ✅ Limpiar rol
     onLogout();
   };
 
@@ -24,6 +29,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     // Para otros módulos, navegar normal
     onNavigateToModule(moduleId);
   };
+
+  // ✅ Definir qué módulos puede ver cada rol
+  const permisosPorRol: { [key: string]: string[] } = {
+    'admin': ['sanatorio', 'inventario', 'contabilidad', 'personal', 'doctores', 'visitadoras'],
+    'secretaria': ['sanatorio', 'inventario', 'visitadoras'],
+    'doctor': ['doctores']
+  };
+
+  const modulosPermitidos = permisosPorRol[rolUsuario] || permisosPorRol['secretaria'];
 
   const modules = [
     {
@@ -81,6 +95,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     }
   ];
 
+  // ✅ Filtrar módulos según permisos del rol
+  const modulosFiltrados = modules.filter(m => modulosPermitidos.includes(m.id));
+
+  // ✅ Obtener etiqueta del rol
+  const getRolLabel = (rol: string) => {
+    const labels: { [key: string]: string } = {
+      'admin': 'Administrador',
+      'secretaria': 'Secretaria',
+      'doctor': 'Doctor'
+    };
+    return labels[rol] || 'Usuario';
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Header */}
@@ -88,7 +115,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">CONRAD - Sistema de Gestión</h1>
-            <p className="text-sm text-gray-600">Panel Principal</p>
+            <div className="flex items-center gap-3 mt-1">
+              <p className="text-sm text-gray-600">Panel Principal</p>
+              <span className="text-gray-300">•</span>
+              <p className="text-sm font-medium text-blue-600">{nombreUsuario}</p>
+              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded">
+                {getRolLabel(rolUsuario)}
+              </span>
+            </div>
           </div>
           <button
             onClick={handleLogout}
@@ -106,9 +140,30 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           <h2 className="text-3xl font-bold text-gray-800 mb-2">Selecciona un Módulo</h2>
           <p className="text-gray-600">Elige el área que deseas gestionar</p>
         </div>
-
+      {/* Botón de Resumen del Día - Solo Admin */}
+{rolUsuario === 'admin' && (
+  <div className="mb-6">
+    <button
+      onClick={() => handleModuleClick('resumen')}
+      className="w-full bg-gradient-to-r from-indigo-600 to-purple-700 hover:from-indigo-700 hover:to-purple-800 text-white rounded-xl shadow-2xl p-8 transition-all duration-300 hover:scale-105"
+    >
+      <div className="flex items-center gap-4">
+        <div className="bg-white bg-opacity-20 w-16 h-16 rounded-lg flex items-center justify-center">
+          <Calendar size={32} />
+        </div>
+        <div className="text-left flex-1">
+          <h3 className="text-2xl font-bold">📊 Resumen del Día</h3>
+          <p className="text-indigo-100 mt-1">Vista general, actividades y códigos de autorización</p>
+        </div>
+        <div className="text-sm font-semibold px-4 py-2 bg-white bg-opacity-20 rounded-full">
+          Solo Admin →
+        </div>
+      </div>
+    </button>
+  </div>
+)}
         <div className="grid md:grid-cols-2 lg:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          {modules.map((module) => {
+          {modulosFiltrados.map((module) => {
             const Icon = module.icon;
             return (
               <button
@@ -161,8 +216,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <h3 className="text-lg font-bold text-gray-800 mb-2">📊 Estado del Sistema</h3>
             <div className="grid grid-cols-3 gap-4 mt-4">
               <div className="text-center">
-                <div className="text-3xl font-bold text-blue-600">3</div>
-                <div className="text-sm text-gray-600">Módulos Activos</div>
+                <div className="text-3xl font-bold text-blue-600">{modulosFiltrados.length}</div>
+                <div className="text-sm text-gray-600">Módulos Disponibles</div>
               </div>
               <div className="text-center">
                 <div className="text-3xl font-bold text-green-600">0</div>

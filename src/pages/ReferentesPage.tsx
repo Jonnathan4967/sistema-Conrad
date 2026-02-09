@@ -3,6 +3,7 @@ import { ArrowLeft, Plus, Edit2, Trash2, Save, X, FileSpreadsheet } from 'lucide
 import { supabase } from '../lib/supabase';
 import { Autocomplete } from '../components/Autocomplete';
 import { departamentosGuatemala, municipiosGuatemala } from '../data/guatemala';
+import { AutorizacionModal } from '../components/AutorizacionModal';
 import ExcelJS from 'exceljs';
 
 interface Medico {
@@ -25,6 +26,10 @@ export const ReferentesPage: React.FC<ReferentesPageProps> = ({ onBack }) => {
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState(false);
   const [medicoEditando, setMedicoEditando] = useState<Medico | null>(null);
+  
+  // ✅ NUEVO: Estados para autorización
+  const [mostrarAutorizacion, setMostrarAutorizacion] = useState(false);
+  const [medicoAEliminar, setMedicoAEliminar] = useState<Medico | null>(null);
   
   // Estados para filtros
   const [filtroNombre, setFiltroNombre] = useState('');
@@ -138,23 +143,48 @@ export const ReferentesPage: React.FC<ReferentesPageProps> = ({ onBack }) => {
     }
   };
 
-  const eliminarMedico = async (id: string) => {
-    if (!confirm('¿Está seguro de eliminar este médico referente?')) {
-      return;
-    }
+  // ✅ NUEVO: Solicitar autorización para eliminar
+  const solicitarEliminarMedico = (medico: Medico) => {
+    setMedicoAEliminar(medico);
+    setMostrarAutorizacion(true);
+  };
+
+  // ✅ MODIFICADO: Eliminar médico (se ejecuta después de la autorización)
+  const eliminarMedico = async () => {
+    if (!medicoAEliminar) return;
 
     try {
       const { error } = await supabase
         .from('medicos')
         .update({ activo: false })
-        .eq('id', id);
+        .eq('id', medicoAEliminar.id);
 
       if (error) throw error;
-      alert('Médico eliminado exitosamente');
+
+      // Registrar en log
+      const usuario = sessionStorage.getItem('usernameConrad') || '';
+      const nombreUsuario = sessionStorage.getItem('nombreUsuarioConrad') || '';
+      const rol = sessionStorage.getItem('rolUsuarioConrad') || '';
+
+      await supabase.rpc('registrar_actividad', {
+        p_usuario: usuario,
+        p_nombre_usuario: nombreUsuario,
+        p_rol: rol,
+        p_modulo: 'sanatorio',
+        p_accion: 'eliminar',
+        p_tipo_registro: 'medico_referente',
+        p_registro_id: medicoAEliminar.id,
+        p_detalles: { nombre: medicoAEliminar.nombre, departamento: medicoAEliminar.departamento },
+        p_requirio_autorizacion: true
+      });
+
+      alert('✅ Médico eliminado exitosamente');
       cargarMedicos();
+      setMostrarAutorizacion(false);
+      setMedicoAEliminar(null);
     } catch (error) {
       console.error('Error al eliminar médico:', error);
-      alert('Error al eliminar médico');
+      alert('❌ Error al eliminar médico');
     }
   };
 
@@ -366,7 +396,7 @@ export const ReferentesPage: React.FC<ReferentesPageProps> = ({ onBack }) => {
                     <Edit2 size={16} />
                   </button>
                   <button
-                    onClick={() => eliminarMedico(medico.id)}
+                    onClick={() => solicitarEliminarMedico(medico)}
                     className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
                     title="Eliminar"
                   >
@@ -483,6 +513,19 @@ export const ReferentesPage: React.FC<ReferentesPageProps> = ({ onBack }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ✅ NUEVO: Modal de Autorización */}
+      {mostrarAutorizacion && medicoAEliminar && (
+        <AutorizacionModal
+          accion="Eliminar Médico Referente"
+          detalles={`${medicoAEliminar.nombre} - ${medicoAEliminar.departamento}, ${medicoAEliminar.municipio}`}
+          onAutorizado={() => eliminarMedico()}
+          onCancelar={() => {
+            setMostrarAutorizacion(false);
+            setMedicoAEliminar(null);
+          }}
+        />
       )}
     </div>
   );

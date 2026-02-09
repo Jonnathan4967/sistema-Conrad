@@ -14,6 +14,7 @@ import { ComisionesPage } from './pages/ComisionesPage';
 import { ContabilidadPage } from './pages/ContabilidadPage';
 import { PersonalPage } from './pages/PersonalPage';
 import { DoctoresPage } from './pages/DoctoresPage';
+import { ResumenDiaPage } from './pages/ResumenDiaPage';
 
 // Módulo de Inventario
 import { InventarioHomePage } from './pages/InventarioHomePage';
@@ -66,6 +67,11 @@ function App() {
         onLogout={handleLogout}
       />
     );
+  }
+
+  // Si está en el módulo de resumen del día
+  if (currentModule === 'resumen') {
+    return <ResumenDiaPage onBack={handleBackToDashboard} />;
   }
 
   // Si está en el módulo de sanatorio

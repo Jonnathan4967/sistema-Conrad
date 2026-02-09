@@ -24,15 +24,14 @@ interface CuadreDiarioPageProps {
 export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) => {
   const getFechaGuatemala = () => {
     const ahora = new Date();
-    const guatemalaTime = new Date(ahora.getTime() - (6 * 60 * 60 * 1000));
-    return guatemalaTime.toISOString().split('T')[0];
+    const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
+    return format(guatemalaTime, 'yyyy-MM-dd');
   };
 
   const [fecha, setFecha] = useState(getFechaGuatemala());
   const [cuadre, setCuadre] = useState<CuadreDiario | null>(null);
   const [loading, setLoading] = useState(false);
   
-  // Estados para conteo de billetes y monedas
   const [billetes, setBilletes] = useState({
     b200: '',
     b100: '',
@@ -54,11 +53,10 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
   const [tarjetaContado, setTarjetaContado] = useState('');
   const [transferenciaContado, setTransferenciaContado] = useState('');
-  const [estadoCuentaContado, setEstadoCuentaContado] = useState(''); // ✅ NUEVO
+  const [estadoCuentaContado, setEstadoCuentaContado] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [mostrarCuadre, setMostrarCuadre] = useState(false);
   
-  // Estados de validación y firma
   const [cuadreValidado, setCuadreValidado] = useState(false);
   const [mostrarEsperados, setMostrarEsperados] = useState(false);
   const [pinCierre, setPinCierre] = useState('');
@@ -84,7 +82,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     setMonedas({ m1: '', m050: '', m025: '', m010: '', m005: '', m001: '' });
     setTarjetaContado('');
     setTransferenciaContado('');
-    setEstadoCuentaContado(''); // ✅ NUEVO
+    setEstadoCuentaContado('');
     setObservaciones('');
     setCuadreValidado(false);
     setMostrarEsperados(false);
@@ -107,8 +105,9 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       if (errorConsultas) throw errorConsultas;
 
+      // ✅ CAMBIADO: Solo excluir anuladas, INCLUIR móviles
       const consultasRegulares = consultas?.filter(c => 
-        c.anulado !== true && c.es_servicio_movil !== true
+        c.anulado !== true
       ) || [];
 
       const consultasIds = consultas?.map(c => c.id) || [];
@@ -173,6 +172,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       })));
       
       cargarGastos();
+      await cargarCuadreGuardado();
+      
     } catch (error) {
       console.error('Error al cargar cuadre:', error);
       alert('Error al cargar el cuadre diario');
@@ -198,6 +199,95 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     }
   };
 
+  const guardarCuadre = async () => {
+    try {
+      const cuadreData = {
+        fecha,
+        billetes_200: parseInt(billetes.b200) || 0,
+        billetes_100: parseInt(billetes.b100) || 0,
+        billetes_50: parseInt(billetes.b50) || 0,
+        billetes_20: parseInt(billetes.b20) || 0,
+        billetes_10: parseInt(billetes.b10) || 0,
+        billetes_5: parseInt(billetes.b5) || 0,
+        billetes_1: parseInt(billetes.b1) || 0,
+        monedas_1: parseInt(monedas.m1) || 0,
+        monedas_050: parseInt(monedas.m050) || 0,
+        monedas_025: parseInt(monedas.m025) || 0,
+        monedas_010: parseInt(monedas.m010) || 0,
+        monedas_005: parseInt(monedas.m005) || 0,
+        monedas_001: parseInt(monedas.m001) || 0,
+        tarjeta_contado: parseFloat(tarjetaContado) || 0,
+        transferencia_contado: parseFloat(transferenciaContado) || 0,
+        estado_cuenta_contado: parseFloat(estadoCuentaContado) || 0,
+        observaciones,
+        validado: cuadreValidado,
+        nombre_cajero: nombreCajero,
+        pin_cierre: pinCierre,
+        cerrado: cuadreCerrado
+      };
+
+      const { error } = await supabase
+        .from('cuadres_diarios')
+        .upsert(cuadreData, { onConflict: 'fecha' });
+
+      if (error) throw error;
+      
+      alert('✅ Cuadre guardado correctamente');
+    } catch (error) {
+      console.error('Error al guardar cuadre:', error);
+      alert('❌ Error al guardar cuadre');
+    }
+  };
+
+  const cargarCuadreGuardado = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('cuadres_diarios')
+        .select('*')
+        .eq('fecha', fecha)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error al cargar cuadre guardado:', error);
+        return;
+      }
+
+      if (data) {
+        setBilletes({
+          b200: data.billetes_200?.toString() || '',
+          b100: data.billetes_100?.toString() || '',
+          b50: data.billetes_50?.toString() || '',
+          b20: data.billetes_20?.toString() || '',
+          b10: data.billetes_10?.toString() || '',
+          b5: data.billetes_5?.toString() || '',
+          b1: data.billetes_1?.toString() || ''
+        });
+        setMonedas({
+          m1: data.monedas_1?.toString() || '',
+          m050: data.monedas_050?.toString() || '',
+          m025: data.monedas_025?.toString() || '',
+          m010: data.monedas_010?.toString() || '',
+          m005: data.monedas_005?.toString() || '',
+          m001: data.monedas_001?.toString() || ''
+        });
+        setTarjetaContado(data.tarjeta_contado?.toString() || '');
+        setTransferenciaContado(data.transferencia_contado?.toString() || '');
+        setEstadoCuentaContado(data.estado_cuenta_contado?.toString() || '');
+        setObservaciones(data.observaciones || '');
+        setCuadreValidado(data.validado || false);
+        setNombreCajero(data.nombre_cajero || '');
+        setPinCierre(data.pin_cierre || '');
+        setCuadreCerrado(data.cerrado || false);
+        
+        if (data.cerrado) {
+          alert('ℹ️ Este cuadre ya fue cerrado anteriormente');
+        }
+      }
+    } catch (error) {
+      console.error('Error al cargar cuadre guardado:', error);
+    }
+  };
+
   const agregarGasto = async () => {
     if (!conceptoGasto.trim() || !montoGasto) {
       alert('Complete todos los campos del gasto');
@@ -209,7 +299,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         .from('categorias_gastos')
         .select('id')
         .eq('nombre', 'Gastos Operativos')
-        .single();
+        .maybeSingle();
 
       if (catError || !categoria) {
         const { data: nuevaCategoria, error: nuevaCatError } = await supabase
@@ -284,12 +374,11 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     return totalBilletes + totalMonedas;
   };
 
-  // ✅ ALERT SIMPLIFICADO - Sin mostrar diferencias
   const validarCuadre = () => {
     const efectivoContadoNum = calcularTotalEfectivoContado();
     const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
     const transferenciaContadoNum = parseFloat(transferenciaContado) || 0;
-    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0; // ✅ NUEVO
+    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0;
 
     if (efectivoContadoNum === 0 && tarjetaContadoNum === 0 && transferenciaContadoNum === 0 && estadoCuentaContadoNum === 0) {
       alert('⚠️ Debe ingresar al menos un monto para validar el cuadre');
@@ -302,7 +391,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     const diferenciaEfec = Math.abs(efectivoContadoNum - efectivoEsperado);
     const diferenciaTarj = Math.abs(tarjetaContadoNum - tarjetaEsperada);
     const diferenciaTrans = Math.abs(transferenciaContadoNum - depositadoEsperado);
-    const diferenciaEstadoCta = Math.abs(estadoCuentaContadoNum - estadoCuentaEsperada); // ✅ NUEVO
+    const diferenciaEstadoCta = Math.abs(estadoCuentaContadoNum - estadoCuentaEsperada);
 
     const cuadra = diferenciaEfec < 0.01 && diferenciaTarj < 0.01 && diferenciaTrans < 0.01 && diferenciaEstadoCta < 0.01;
 
@@ -327,19 +416,19 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     const efectivoContadoNum = calcularTotalEfectivoContado();
     const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
     const transferenciaContadoNum = parseFloat(transferenciaContado) || 0;
-    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0; // ✅ NUEVO
+    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0;
 
     const diferencias = {
       efectivo: efectivoContadoNum - efectivoEsperado,
       tarjeta: tarjetaContadoNum - tarjetaEsperada,
       depositado: transferenciaContadoNum - depositadoEsperado,
-      estado_cuenta: estadoCuentaContadoNum - estadoCuentaEsperada // ✅ NUEVO
+      estado_cuenta: estadoCuentaContadoNum - estadoCuentaEsperada
     };
 
     const cuadreCorrecto = Math.abs(diferencias.efectivo) < 0.01 && 
                            Math.abs(diferencias.tarjeta) < 0.01 && 
                            Math.abs(diferencias.depositado) < 0.01 &&
-                           Math.abs(diferencias.estado_cuenta) < 0.01; // ✅ NUEVO
+                           Math.abs(diferencias.estado_cuenta) < 0.01;
 
     try {
       setCuadreCerrado(true);
@@ -357,19 +446,19 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     const efectivoContadoNum = calcularTotalEfectivoContado();
     const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
     const depositadoContadoNum = parseFloat(transferenciaContado) || 0;
-    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0; // ✅ NUEVO
+    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0;
 
     const diferencias = {
       efectivo: calcularDiferencia(efectivoEsperado, efectivoContadoNum),
       tarjeta: calcularDiferencia(tarjetaEsperada, tarjetaContadoNum),
       depositado: calcularDiferencia(depositadoEsperado, depositadoContadoNum),
-      estado_cuenta: calcularDiferencia(estadoCuentaEsperada, estadoCuentaContadoNum) // ✅ NUEVO
+      estado_cuenta: calcularDiferencia(estadoCuentaEsperada, estadoCuentaContadoNum)
     };
 
     const cuadreCorrecto = Math.abs(diferencias.efectivo) < 0.01 && 
                            Math.abs(diferencias.tarjeta) < 0.01 && 
                            Math.abs(diferencias.depositado) < 0.01 &&
-                           Math.abs(diferencias.estado_cuenta) < 0.01; // ✅ NUEVO
+                           Math.abs(diferencias.estado_cuenta) < 0.01;
 
     const fechaFormateada = format(new Date(fecha + 'T12:00:00'), 'dd/MM/yyyy');
     const horaActual = format(new Date(), 'HH:mm');
@@ -420,26 +509,25 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const depositadoEsperado = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo_facturado')?.total || 0) +
                               (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'transferencia')?.total || 0);
   const tarjetaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'tarjeta')?.total || 0;
-  const estadoCuentaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'estado_cuenta')?.total || 0; // ✅ NUEVO
+  const estadoCuentaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'estado_cuenta')?.total || 0;
 
   const efectivoContadoNum = calcularTotalEfectivoContado();
   const depositadoContadoNum = parseFloat(transferenciaContado) || 0;
   const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
-  const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0; // ✅ NUEVO
+  const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0;
 
   const diferenciaEfectivo = calcularDiferencia(efectivoEsperado, efectivoContadoNum);
   const diferenciaDepositado = calcularDiferencia(depositadoEsperado, depositadoContadoNum);
   const diferenciaTarjeta = calcularDiferencia(tarjetaEsperada, tarjetaContadoNum);
-  const diferenciaEstadoCuenta = calcularDiferencia(estadoCuentaEsperada, estadoCuentaContadoNum); // ✅ NUEVO
+  const diferenciaEstadoCuenta = calcularDiferencia(estadoCuentaEsperada, estadoCuentaContadoNum);
 
   const cuadreCorrecto = Math.abs(diferenciaEfectivo) < 0.01 && 
                          Math.abs(diferenciaDepositado) < 0.01 &&
                          Math.abs(diferenciaTarjeta) < 0.01 &&
-                         Math.abs(diferenciaEstadoCuenta) < 0.01; // ✅ NUEVO
+                         Math.abs(diferenciaEstadoCuenta) < 0.01;
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="container mx-auto px-4 py-4">
           <button 
@@ -463,13 +551,17 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   </span>
                 </div>
               </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-2">
+                <p className="text-xs text-purple-800 flex items-center gap-2">
+                  📱 <strong>Incluye servicios móviles</strong>
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <div className="container mx-auto p-4 max-w-7xl">
-        {/* Selector de Fecha y Botón Cuadrar */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-6 border border-gray-200">
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-3">
@@ -507,7 +599,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           </div>
         ) : (
           <>
-            {/* ✅ FORMULARIO DE CUADRE ARRIBA */}
             {mostrarCuadre && cuadre && cuadre.total_consultas > 0 && !cuadreCerrado && (
               <div className="bg-white rounded-lg shadow-lg p-6 mb-6 border-2 border-blue-500">
                 <div className="flex items-center gap-3 mb-6 pb-4 border-b">
@@ -520,13 +611,11 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   </div>
                 </div>
 
-                {/* CONTEO DE EFECTIVO */}
                 <div className="mb-8">
                   <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                     💵 Conteo de Efectivo
                   </h4>
                   
-                  {/* Billetes */}
                   <div className="bg-green-50 rounded-lg p-5 mb-4 border border-green-200">
                     <h5 className="font-medium text-gray-700 mb-3">BILLETES:</h5>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
@@ -559,7 +648,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     </div>
                   </div>
 
-                  {/* Monedas */}
                   <div className="bg-yellow-50 rounded-lg p-5 border border-yellow-200">
                     <h5 className="font-medium text-gray-700 mb-3">MONEDAS:</h5>
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -591,7 +679,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     </div>
                   </div>
 
-                  {/* Total Efectivo Contado */}
                   <div className="bg-green-100 border-2 border-green-500 rounded-lg p-4 mt-4">
                     <div className="flex justify-between items-center">
                       <span className="text-lg font-bold text-gray-900">TOTAL EFECTIVO EN CAJA:</span>
@@ -602,9 +689,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   </div>
                 </div>
 
-                {/* ✅ OTROS MÉTODOS DE PAGO - AHORA CON ESTADO DE CUENTA */}
                 <div className="grid md:grid-cols-2 gap-6 mb-6">
-                  {/* Tarjeta */}
                   <div className="bg-purple-50 rounded-lg p-5 border border-purple-200">
                     <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
                       💳 Tarjeta (Vouchers)
@@ -620,7 +705,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     <p className="text-xs text-gray-600 mt-2 text-center">Suma total de vouchers</p>
                   </div>
 
-                  {/* Transferencias/Depósitos */}
                   <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
                     <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
                       🏦 Transferencias/Depósitos
@@ -636,7 +720,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     <p className="text-xs text-gray-600 mt-2 text-center">Suma de comprobantes</p>
                   </div>
 
-                  {/* ✅ NUEVO: Estado de Cuenta */}
                   <div className="bg-amber-50 rounded-lg p-5 border border-amber-200 md:col-span-2">
                     <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
                       📋 Estado de Cuenta
@@ -653,7 +736,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   </div>
                 </div>
 
-                {/* Observaciones */}
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Observaciones del Cierre</label>
                   <textarea
@@ -665,7 +747,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   />
                 </div>
 
-                {/* Botón de Validación */}
+                <button
+                  onClick={guardarCuadre}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-4"
+                >
+                  💾 Guardar Cuadre
+                </button>
+
                 {!cuadreValidado && (
                   <button
                     onClick={validarCuadre}
@@ -676,18 +764,14 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   </button>
                 )}
 
-                {/* RESULTADOS DE VALIDACIÓN */}
                 {cuadreValidado && mostrarEsperados && (
                   <div className="space-y-4">
-                    {/* Sección de Firma - SOLO SI CUADRA */}
                     {cuadreCorrecto ? (
                       <>
-                        {/* Comparación - SOLO CUANDO CUADRA */}
                         <div className="bg-gray-50 rounded-lg p-6 border-2 border-gray-300">
                           <h4 className="text-lg font-bold text-gray-900 mb-4">📊 Comparación Sistema vs Contado</h4>
                           
                           <div className="space-y-3">
-                            {/* Efectivo */}
                             <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
                               <div className="flex justify-between items-center mb-2">
                                 <span className="font-semibold text-gray-900">💵 Efectivo</span>
@@ -711,7 +795,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                               </div>
                             </div>
 
-                            {/* Tarjeta */}
                             <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
                               <div className="flex justify-between items-center mb-2">
                                 <span className="font-semibold text-gray-900">💳 Tarjeta</span>
@@ -735,7 +818,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                               </div>
                             </div>
 
-                            {/* Transferencias */}
                             <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
                               <div className="flex justify-between items-center mb-2">
                                 <span className="font-semibold text-gray-900">🏦 Transferencias</span>
@@ -759,7 +841,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                               </div>
                             </div>
 
-                            {/* ✅ Estado de Cuenta */}
                             {estadoCuentaEsperada > 0 && (
                               <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
                                 <div className="flex justify-between items-center mb-2">
@@ -887,7 +968,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
               </div>
             )}
 
-            {/* Gastos del Día */}
             <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
               <div className="flex items-center justify-between mb-4">
                 <button
@@ -963,7 +1043,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
               )}
             </div>
 
-            {/* Consultas Anuladas */}
             {consultasAnuladas.length > 0 && (
               <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
                 <button
@@ -1005,7 +1084,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         )}
       </div>
 
-      {/* Modal Agregar Gasto */}
       {showModalGasto && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">

@@ -36,6 +36,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       localStorage.setItem('isAuthenticated', 'true');
       localStorage.setItem('nombreUsuarioConrad', usuarios.nombre);
       localStorage.setItem('usernameConrad', usuarios.username);
+      localStorage.setItem('rolUsuarioConrad', usuarios.rol || 'secretaria'); // ✅ NUEVO
       onLogin();
     } catch (error) {
       console.error('Error de login:', error);

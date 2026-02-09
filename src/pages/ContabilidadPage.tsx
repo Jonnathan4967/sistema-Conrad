@@ -9,9 +9,7 @@ import {
   Users,
   Download,
   Clock,
-  Lock,
-  Eye,
-  EyeOff
+  BarChart3
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
@@ -20,15 +18,13 @@ import { IngresosPage } from './IngresosPage';
 import { ProveedoresContabilidadPage } from './ProveedoresContabilidadPage';
 import { ReportesFinancierosPage } from './ReportesFinancierosPage';
 import { ComisionesPagarPage } from './ComisionesPagarPage';
+import { EstadisticasPage } from './EstadisticasPage';
 
 interface ContabilidadPageProps {
   onBack: () => void;
 }
 
-type Vista = 'dashboard' | 'ingresos' | 'gastos' | 'proveedores' | 'reportes' | 'comisiones';
-
-// ✅ CONTRASEÑA DE ACCESO AL MÓDULO DE CONTABILIDAD
-const CONTRASENA_CONTABILIDAD = 'CONRAD2025'; // Cambia esta contraseña según necesites
+type Vista = 'dashboard' | 'ingresos' | 'gastos' | 'proveedores' | 'reportes' | 'comisiones' | 'estadisticas';
 
 // ✅ INTERFAZ NUEVA para el componente de resumen
 interface CuadrePorFormaPago {
@@ -38,12 +34,6 @@ interface CuadrePorFormaPago {
 }
 
 export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) => {
-  // ✅ Estados de autenticación
-  const [autenticado, setAutenticado] = useState(false);
-  const [contrasenaInput, setContrasenaInput] = useState('');
-  const [errorContrasena, setErrorContrasena] = useState('');
-  const [mostrarContrasena, setMostrarContrasena] = useState(false);
-  
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(false);
@@ -54,9 +44,9 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
     gastosOperativos: 0,
     comisionesPagadas: 0,
     utilidad: 0,
-    ingresosSinGastosOperativos: 0, // ✅ NUEVO
+    ingresosSinGastosOperativos: 0,
     ingresosConsultas: 0,
-    ingresosMoviles: 0, // ✅ NUEVO
+    ingresosMoviles: 0,
     ingresosAdicionales: 0,
     comisionesPendientes: 0
   });
@@ -70,48 +60,12 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
   ];
 
   useEffect(() => {
-    // Verificar si ya está autenticado en esta sesión
-    const authContabilidad = sessionStorage.getItem('contabilidad_autenticado');
-    if (authContabilidad === 'true') {
-      setAutenticado(true);
-      cargarDatos();
-    }
+    cargarDatos();
   }, []);
 
   useEffect(() => {
-    if (autenticado) {
-      cargarDatos();
-    }
-  }, [mes, anio, autenticado]);
-
-  const verificarContrasena = () => {
-    if (contrasenaInput === CONTRASENA_CONTABILIDAD) {
-      setAutenticado(true);
-      sessionStorage.setItem('contabilidad_autenticado', 'true');
-      setErrorContrasena('');
-      setContrasenaInput('');
-    } else {
-      setErrorContrasena('❌ Contraseña incorrecta');
-      setContrasenaInput('');
-      // Limpiar error después de 3 segundos
-      setTimeout(() => setErrorContrasena(''), 3000);
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      verificarContrasena();
-    }
-  };
-
-  const cerrarSesion = () => {
-    if (confirm('¿Desea cerrar la sesión del módulo de Contabilidad?')) {
-      setAutenticado(false);
-      sessionStorage.removeItem('contabilidad_autenticado');
-      setVistaActual('dashboard');
-      onBack();
-    }
-  };
+    cargarDatos();
+  }, [mes, anio]);
 
   const cargarDatos = async () => {
     setLoading(true);
@@ -205,7 +159,7 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
 
       const totalIngresos = ingresosConsultas + ingresosMoviles + ingresosAdicionales;
       const utilidad = totalIngresos - totalGastos;
-      const ingresosSinGastosOperativos = totalIngresos - gastosOperativos; // ✅ NUEVO
+      const ingresosSinGastosOperativos = totalIngresos - gastosOperativos;
 
       console.log('📊 Totales calculados:', {
         ingresosConsultas,
@@ -225,9 +179,9 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
         gastosOperativos: gastosOperativos,
         comisionesPagadas: comisionesPagadas,
         utilidad: utilidad,
-        ingresosSinGastosOperativos: ingresosSinGastosOperativos, // ✅ NUEVO
+        ingresosSinGastosOperativos: ingresosSinGastosOperativos,
         ingresosConsultas: ingresosConsultas,
-        ingresosMoviles: ingresosMoviles, // ✅ NUEVO
+        ingresosMoviles: ingresosMoviles,
         ingresosAdicionales: ingresosAdicionales,
         comisionesPendientes: comisionesPendientes
       });
@@ -259,77 +213,8 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
     return <ComisionesPagarPage onBack={() => setVistaActual('dashboard')} />;
   }
 
-  // ✅ PANTALLA DE AUTENTICACIÓN
-  if (!autenticado) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-green-600 to-blue-600 rounded-full mb-4">
-              <Lock className="text-white" size={40} />
-            </div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">Módulo de Contabilidad</h1>
-            <p className="text-gray-600">Ingrese la contraseña para acceder</p>
-          </div>
-
-          <div className="space-y-4">
-            <div className="relative">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Contraseña
-              </label>
-              <div className="relative">
-                <input
-                  type={mostrarContrasena ? "text" : "password"}
-                  value={contrasenaInput}
-                  onChange={(e) => {
-                    setContrasenaInput(e.target.value);
-                    setErrorContrasena('');
-                  }}
-                  onKeyPress={handleKeyPress}
-                  className={`w-full px-4 py-3 pr-12 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors ${
-                    errorContrasena ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="Ingrese la contraseña"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={() => setMostrarContrasena(!mostrarContrasena)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                >
-                  {mostrarContrasena ? <EyeOff size={20} /> : <Eye size={20} />}
-                </button>
-              </div>
-              {errorContrasena && (
-                <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
-                  {errorContrasena}
-                </p>
-              )}
-            </div>
-
-            <button
-              onClick={verificarContrasena}
-              className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-all transform hover:scale-105 active:scale-95"
-            >
-              Ingresar al Módulo
-            </button>
-
-            <button
-              onClick={onBack}
-              className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-3 px-6 rounded-lg transition-colors"
-            >
-              Volver al Dashboard
-            </button>
-          </div>
-
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <p className="text-center text-xs text-gray-500">
-              🔒 Acceso restringido solo para personal autorizado
-            </p>
-          </div>
-        </div>
-      </div>
-    );
+  if (vistaActual === 'estadisticas') {
+    return <EstadisticasPage onBack={() => setVistaActual('dashboard')} />;
   }
 
   // Vista Dashboard
@@ -389,7 +274,7 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
           </div>
         </div>
 
-        {/* ✅ Resumen Cards - ACTUALIZADO */}
+        {/* Resumen Cards */}
         <div className="grid md:grid-cols-4 gap-6 mb-8">
           {/* Ingresos - CON DESGLOSE DE MÓVILES */}
           <div className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow">
@@ -460,10 +345,10 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
           </div>
         </div>
 
-        {/* ✅ NUEVO: Resumen de Ventas por Método - DATOS DEL DÍA ACTUAL */}
+        {/* Resumen de Ventas por Método - DATOS DEL DÍA ACTUAL */}
         <ResumenVentasDelDia mes={mes} anio={anio} />
 
-        {/* ✅ DESGLOSE DE INGRESOS - VERSIÓN COLAPSABLE */}
+        {/* DESGLOSE DE INGRESOS - VERSIÓN COLAPSABLE */}
         {totales.ingresosMoviles > 0 && (
           <div className="mb-8">
             {/* Botón principal colapsable */}
@@ -543,7 +428,7 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
         )}
 
         {/* Accesos Rápidos */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid md:grid-cols-2 lg:grid-cols-6 gap-4">
           <button 
             onClick={() => setVistaActual('ingresos')}
             className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:-translate-y-1"
@@ -569,6 +454,15 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
             <Clock className="text-purple-600 mb-3" size={32} />
             <h3 className="font-bold text-lg mb-1">Comisiones</h3>
             <p className="text-sm text-gray-600">Cuentas por pagar</p>
+          </button>
+
+          <button 
+            onClick={() => setVistaActual('estadisticas')}
+            className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:-translate-y-1"
+          >
+            <BarChart3 className="text-indigo-600 mb-3" size={32} />
+            <h3 className="font-bold text-lg mb-1">Estadísticas</h3>
+            <p className="text-sm text-gray-600">Análisis de estudios</p>
           </button>
 
           <button 
@@ -607,7 +501,7 @@ export const ContabilidadPage: React.FC<ContabilidadPageProps> = ({ onBack }) =>
   );
 };
 
-// ✅ COMPONENTE NUEVO: Resumen de Ventas por Método
+// COMPONENTE: Resumen de Ventas por Método (CON SERVICIOS MÓVILES)
 interface ResumenVentasDelDiaProps {
   mes: number;
   anio: number;
@@ -616,9 +510,9 @@ interface ResumenVentasDelDiaProps {
 const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) => {
   const [loading, setLoading] = useState(false);
   const [ventasPorMetodo, setVentasPorMetodo] = useState<CuadrePorFormaPago[]>([]);
-  const [gastosDelDia, setGastosDelDia] = useState(0); // ✅ NUEVO
+  const [ventasMovilesPorMetodo, setVentasMovilesPorMetodo] = useState<CuadrePorFormaPago[]>([]);
+  const [gastosDelDia, setGastosDelDia] = useState(0);
   const [fechaSeleccionada, setFechaSeleccionada] = useState(() => {
-    // ✅ Obtener fecha en zona horaria de Guatemala (GMT-6)
     const ahora = new Date();
     const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
     const year = guatemalaTime.getFullYear();
@@ -634,7 +528,7 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
   const cargarVentasDelDia = async () => {
     setLoading(true);
     try {
-      // Cargar consultas del día
+      // 1. Cargar consultas REGULARES del día
       const { data: consultas } = await supabase
         .from('consultas')
         .select(`
@@ -645,7 +539,18 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
         .or('anulado.is.null,anulado.eq.false')
         .or('es_servicio_movil.is.null,es_servicio_movil.eq.false');
 
-      // ✅ NUEVO: Cargar gastos del día
+      // 2. Cargar SERVICIOS MÓVILES del día
+      const { data: consultasMoviles } = await supabase
+        .from('consultas')
+        .select(`
+          forma_pago,
+          detalle_consultas(precio)
+        `)
+        .eq('fecha', fechaSeleccionada)
+        .or('anulado.is.null,anulado.eq.false')
+        .eq('es_servicio_movil', true);
+
+      // 3. Cargar gastos del día
       const { data: gastos } = await supabase
         .from('gastos')
         .select('monto')
@@ -654,6 +559,7 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
       const totalGastos = gastos?.reduce((sum, g) => sum + g.monto, 0) || 0;
       setGastosDelDia(totalGastos);
 
+      // 4. Procesar consultas REGULARES por forma de pago
       const cuadrePorForma: { [key: string]: CuadrePorFormaPago } = {};
       
       consultas?.forEach((consulta: any) => {
@@ -672,7 +578,28 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
         cuadrePorForma[formaPago].total += total;
       });
 
+      // 5. Procesar SERVICIOS MÓVILES por forma de pago (POR SEPARADO)
+      const cuadreMovilesPorForma: { [key: string]: CuadrePorFormaPago } = {};
+      
+      consultasMoviles?.forEach((consulta: any) => {
+        const total = consulta.detalle_consultas?.reduce((sum: number, d: any) => sum + d.precio, 0) || 0;
+        const formaPago = consulta.forma_pago || 'efectivo';
+
+        if (!cuadreMovilesPorForma[formaPago]) {
+          cuadreMovilesPorForma[formaPago] = {
+            forma_pago: formaPago,
+            cantidad: 0,
+            total: 0
+          };
+        }
+
+        cuadreMovilesPorForma[formaPago].cantidad += 1;
+        cuadreMovilesPorForma[formaPago].total += total;
+      });
+
       setVentasPorMetodo(Object.values(cuadrePorForma));
+      setVentasMovilesPorMetodo(Object.values(cuadreMovilesPorForma));
+
     } catch (error) {
       console.error('Error al cargar ventas:', error);
     }
@@ -685,7 +612,7 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
       tarjeta: 'TARJETA',
       transferencia: 'TRANSFERENCIA',
       efectivo_facturado: 'DEPÓSITO',
-      estado_cuenta: 'ESTADO DE CUENTA', // ✅ AÑADIDO
+      estado_cuenta: 'ESTADO DE CUENTA',
       multiple: 'Múltiple'
     };
     return formas[forma] || forma;
@@ -694,12 +621,14 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
   // Calcular totales generales
   const totalGeneral = ventasPorMetodo.reduce((sum, m) => sum + m.total, 0);
   const totalConsultas = ventasPorMetodo.reduce((sum, m) => sum + m.cantidad, 0);
-  const totalNeto = totalGeneral - gastosDelDia; // ✅ NUEVO: Total menos gastos
+  const totalMoviles = ventasMovilesPorMetodo.reduce((sum, m) => sum + m.total, 0);
+  const totalServiciosMoviles = ventasMovilesPorMetodo.reduce((sum, m) => sum + m.cantidad, 0);
+  const totalNeto = totalGeneral + totalMoviles - gastosDelDia;
 
   return (
     <div className="mb-8">
       <div className="grid md:grid-cols-5 gap-4">
-        {/* Tarjeta Principal: Total del Día - MÁS COMPACTA */}
+        {/* Tarjeta Principal: Total del Día */}
         <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-lg shadow-lg p-4 text-white hover:shadow-xl transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -721,13 +650,25 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
           ) : (
             <>
               <p className="text-2xl font-bold mb-1">
-                Q {totalGeneral.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                Q {(totalGeneral + totalMoviles).toLocaleString('es-GT', { minimumFractionDigits: 2 })}
               </p>
               <p className="text-indigo-100 text-xs mb-2">
-                {totalConsultas} consulta{totalConsultas !== 1 ? 's' : ''}
+                {totalConsultas + totalServiciosMoviles} servicio{(totalConsultas + totalServiciosMoviles) !== 1 ? 's' : ''} total
               </p>
               
-              {/* ✅ Gastos y neto en formato compacto */}
+              {totalMoviles > 0 && (
+                <div className="border-t border-indigo-400 pt-2 mb-2 space-y-1">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-indigo-200">Consultas regulares</span>
+                    <span className="font-semibold">Q {totalGeneral.toLocaleString('es-GT', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-indigo-200">Servicios móviles 📱</span>
+                    <span className="font-semibold text-orange-200">Q {totalMoviles.toLocaleString('es-GT', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+              )}
+              
               {gastosDelDia > 0 && (
                 <div className="border-t border-indigo-400 pt-2 space-y-1">
                   <div className="flex justify-between items-center">
@@ -748,17 +689,18 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
           )}
         </div>
 
-        {/* Tarjetas de Métodos de Pago - MÁS COMPACTAS */}
+        {/* Tarjetas de Métodos de Pago */}
         {loading ? (
           <div className="col-span-4 flex items-center justify-center py-8">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-blue-600"></div>
           </div>
-        ) : ventasPorMetodo.length === 0 ? (
+        ) : ventasPorMetodo.length === 0 && ventasMovilesPorMetodo.length === 0 ? (
           <div className="col-span-4 flex items-center justify-center py-8 bg-gray-50 rounded-lg">
             <p className="text-gray-500 text-sm">No hay ventas registradas en esta fecha</p>
           </div>
         ) : (
           <>
+            {/* Consultas Regulares */}
             {ventasPorMetodo.slice(0, 4).map(metodo => (
               <div key={metodo.forma_pago} className="bg-white rounded-lg shadow-lg p-4 hover:shadow-xl transition-shadow border-l-4 border-blue-500">
                 <p className="text-gray-600 text-xs font-semibold mb-1 uppercase tracking-wide">
@@ -773,7 +715,7 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
               </div>
             ))}
             
-            {/* Si hay más de 4 métodos, mostrarlos en una segunda fila */}
+            {/* Si hay más de 4 métodos regulares */}
             {ventasPorMetodo.length > 4 && (
               <>
                 <div className="md:col-span-1"></div>
@@ -787,6 +729,31 @@ const ResumenVentasDelDia: React.FC<ResumenVentasDelDiaProps> = ({ mes, anio }) 
                     </p>
                     <p className="text-gray-500 text-xs">
                       {metodo.cantidad} consulta{metodo.cantidad !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Tarjetas de Servicios Móviles */}
+            {ventasMovilesPorMetodo.length > 0 && (
+              <>
+                <div className="col-span-5 mt-4">
+                  <h3 className="text-lg font-bold text-gray-700 flex items-center gap-2">
+                    📱 Servicios Móviles
+                  </h3>
+                </div>
+                <div className="md:col-span-1"></div>
+                {ventasMovilesPorMetodo.map(metodo => (
+                  <div key={`movil-${metodo.forma_pago}`} className="bg-white rounded-lg shadow-lg p-4 hover:shadow-xl transition-shadow border-l-4 border-orange-500">
+                    <p className="text-orange-600 text-xs font-semibold mb-1 uppercase tracking-wide flex items-center gap-1">
+                      {getFormaPagoNombre(metodo.forma_pago)} 📱
+                    </p>
+                    <p className="text-2xl font-bold text-orange-600 mb-0.5">
+                      Q {metodo.total.toLocaleString('es-GT', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-gray-500 text-xs">
+                      {metodo.cantidad} servicio{metodo.cantidad !== 1 ? 's' : ''} móvil{metodo.cantidad !== 1 ? 'es' : ''}
                     </p>
                   </div>
                 ))}

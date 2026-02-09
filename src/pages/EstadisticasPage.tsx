@@ -152,7 +152,7 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
 
       setDatosPorMes(datosMes);
 
-      // Top 10 estudios
+      // Top 10 estudios + resto (sin los que tienen 0)
       const todosDetalles = consultas.flatMap(c => c.detalle_consultas);
       const estudiosCount: { [key: string]: number } = {};
       
@@ -161,12 +161,19 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
         estudiosCount[nombre] = (estudiosCount[nombre] || 0) + 1;
       });
 
-      const top10 = Object.entries(estudiosCount)
+      // Ordenar todos por cantidad
+      const todosEstudios = Object.entries(estudiosCount)
         .map(([nombre, cantidad]) => ({ nombre, cantidad }))
-        .sort((a, b) => b.cantidad - a.cantidad)
-        .slice(0, 10);
+        .filter(e => e.cantidad > 0) // Filtrar los que tienen 0
+        .sort((a, b) => b.cantidad - a.cantidad);
 
-      setTopEstudios(top10);
+      // Top 10 marcados
+      const top10Marcados = todosEstudios.map((estudio, idx) => ({
+        ...estudio,
+        esTop10: idx < 10
+      }));
+
+      setTopEstudios(top10Marcados);
 
       // Por tipo de cobro
       const tipoCobro = consultas.reduce((acc: any, c) => {
@@ -193,17 +200,49 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
   };
 
   const exportarCSV = () => {
-    const csv = [
-      ['Fecha', 'Pacientes', 'Ingresos'],
-      ...datosPorDia.map(d => [d.fecha, d.cantidad, d.ingresos])
-    ].map(row => row.join(',')).join('\n');
+    // Crear CSV con múltiples secciones
+    let csv = '';
+    
+    // Sección 1: Resumen General
+    csv += 'RESUMEN GENERAL\n';
+    csv += `Período,${fechaInicio} al ${fechaFin}\n`;
+    csv += `Total Consultas,${totalConsultas}\n`;
+    csv += `Pacientes Únicos,${totalPacientes}\n`;
+    csv += `Total Ingresos,Q ${totalIngresos.toFixed(2)}\n`;
+    csv += `Promedio por Consulta,Q ${promedioConsulta.toFixed(2)}\n`;
+    csv += '\n';
+    
+    // Sección 2: Estudios (Top 10 y resto)
+    csv += 'ESTUDIOS REALIZADOS\n';
+    csv += 'Ranking,Estudio,Cantidad,Categoría\n';
+    topEstudios.forEach((estudio, idx) => {
+      const categoria = estudio.esTop10 ? 'Top 10' : 'Otros';
+      csv += `#${idx + 1},${estudio.nombre},${estudio.cantidad},${categoria}\n`;
+    });
+    csv += '\n';
+    
+    // Sección 3: Por Día
+    csv += 'INGRESOS POR DÍA\n';
+    csv += 'Fecha,Cantidad Consultas,Ingresos\n';
+    datosPorDia.forEach(d => {
+      csv += `${d.fecha},${d.cantidad},Q ${d.ingresos.toFixed(2)}\n`;
+    });
+    csv += '\n';
+    
+    // Sección 4: Por Mes
+    csv += 'INGRESOS POR MES\n';
+    csv += 'Mes,Cantidad Consultas,Ingresos\n';
+    datosPorMes.forEach(d => {
+      csv += `${d.mes},${d.cantidad},Q ${d.ingresos.toFixed(2)}\n`;
+    });
 
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `estadisticas_${fechaInicio}_${fechaFin}.csv`;
+    a.download = `estadisticas_completas_${fechaInicio}_${fechaFin}.csv`;
     a.click();
+    window.URL.revokeObjectURL(url);
   };
 
   // ✅ NUEVO: Función para formatear nombres de tipo de cobro
@@ -375,23 +414,48 @@ export const EstadisticasPage: React.FC<EstadisticasPageProps> = ({ onBack }) =>
 
         {/* Otras estadísticas */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Top 10 Estudios */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-4">🏆 Top 10 Estudios Más Realizados</h2>
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {topEstudios.map((estudio, idx) => (
-                <div key={idx} className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${
-                    idx === 0 ? 'bg-yellow-500' : idx === 1 ? 'bg-gray-400' : idx === 2 ? 'bg-orange-500' : 'bg-blue-500'
-                  }`}>
-                    #{idx + 1}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{estudio.nombre}</p>
-                  </div>
-                  <span className="text-purple-600 font-bold">{estudio.cantidad} veces</span>
+          {/* Top 10 Estudios + Resto */}
+          <div className="bg-white rounded-lg shadow p-6 lg:col-span-2">
+            <h2 className="text-xl font-bold mb-4">🏆 Estudios Realizados</h2>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {/* Top 10 */}
+              {topEstudios.filter(e => e.esTop10).length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-sm font-bold text-purple-700 mb-2 uppercase tracking-wide">Top 10 Más Realizados</h3>
+                  {topEstudios.filter(e => e.esTop10).map((estudio, idx) => (
+                    <div key={idx} className="flex items-center gap-3 py-2 px-3 bg-purple-50 rounded-lg mb-2">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 ${
+                        idx === 0 ? 'bg-yellow-500' : idx === 1 ? 'bg-gray-400' : idx === 2 ? 'bg-orange-500' : 'bg-purple-500'
+                      }`}>
+                        #{idx + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{estudio.nombre}</p>
+                      </div>
+                      <span className="text-purple-600 font-bold shrink-0">{estudio.cantidad}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+
+              {/* Resto de estudios */}
+              {topEstudios.filter(e => !e.esTop10).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-gray-600 mb-2 mt-4 uppercase tracking-wide">Otros Estudios</h3>
+                  {topEstudios.filter(e => !e.esTop10).map((estudio, idx) => (
+                    <div key={idx + 10} className="flex items-center gap-3 py-2 px-3 hover:bg-gray-50 rounded-lg">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-200 text-gray-600 font-bold text-xs shrink-0">
+                        #{idx + 11}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-700 truncate">{estudio.nombre}</p>
+                      </div>
+                      <span className="text-gray-600 font-medium shrink-0">{estudio.cantidad}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {topEstudios.length === 0 && (
                 <p className="text-gray-500 text-center py-8">No hay datos</p>
               )}

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { EditarPacienteModal } from '../components/EditarPacienteModal';
 import { AgregarEstudioModal } from '../components/AgregarEstudioModal';
+import { AutorizacionModal } from '../components/AutorizacionModal'; // ✅ NUEVO
 import { generarReciboCompleto, generarReciboMedico, abrirRecibo } from '../lib/recibos';
 
 interface PacientesPageProps {
@@ -11,7 +12,14 @@ interface PacientesPageProps {
 }
 
 export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
-  const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'));
+  // ✅ FUNCIÓN HELPER - Obtener fecha en zona horaria de Guatemala (GMT-6)
+  const getFechaGuatemala = () => {
+    const ahora = new Date();
+    const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
+    return format(guatemalaTime, 'yyyy-MM-dd');
+  };
+
+  const [fecha, setFecha] = useState(getFechaGuatemala()); // ✅ CORREGIDO
   const [consultas, setConsultas] = useState<any[]>([]);
   const [consultasAnuladas, setConsultasAnuladas] = useState<any[]>([]);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
@@ -27,10 +35,15 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   const [nitEditando, setNitEditando] = useState('');
   const [formaPagoEditando, setFormaPagoEditando] = useState('');
   const [requiereFacturaEditando, setRequiereFacturaEditando] = useState(false);
-
-  // ✅ NUEVO: Estados para modal de tipo de recibo
   const [showModalTipoRecibo, setShowModalTipoRecibo] = useState(false);
   const [datosReciboTemp, setDatosReciboTemp] = useState<any>(null);
+
+  // ✅ NUEVO: Estados para autorización
+  const [mostrarAutorizacion, setMostrarAutorizacion] = useState(false);
+  const [accionPendiente, setAccionPendiente] = useState<{
+    tipo: 'eliminar_consulta' | 'editar_paciente' | 'eliminar_estudio';
+    datos: any;
+  } | null>(null);
 
   useEffect(() => {
     cargarConsultas();
@@ -48,11 +61,10 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           detalle_consultas(*, sub_estudios(nombre))
         `)
         .eq('fecha', fecha)
-        .order('numero_paciente', { ascending: true }); // Ordenar por número de paciente ascendente
+        .order('numero_paciente', { ascending: true });
 
       if (error) throw error;
       
-      // Separar consultas activas de anuladas
       const activas = (data || []).filter(c => !c.anulado);
       const anuladas = (data || []).filter(c => c.anulado);
       
@@ -65,32 +77,48 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     setLoading(false);
   };
 
-  const eliminarConsulta = async (consultaId: string, numeroEliminado: number | null) => {
+  // ✅ NUEVO: Solicitar autorización para eliminar consulta
+  const solicitarEliminarConsulta = (consultaId: string, numeroEliminado: number | null, nombrePaciente: string) => {
+    setAccionPendiente({
+      tipo: 'eliminar_consulta',
+      datos: { consultaId, numeroEliminado, nombrePaciente }
+    });
+    setMostrarAutorizacion(true);
+  };
+
+  // ✅ MODIFICADO: Eliminar consulta (ejecuta después de autorización)
+  const eliminarConsulta = async () => {
+    if (!accionPendiente || accionPendiente.tipo !== 'eliminar_consulta') return;
+
+    const { consultaId, numeroEliminado, nombrePaciente } = accionPendiente.datos;
+
     const motivo = prompt('⚠️ ANULAR CONSULTA\n\n¿Por qué se anula?\n(Obligatorio para auditoría)');
     
     if (!motivo || motivo.trim() === '') {
       alert('❌ Debes dar un motivo');
+      setMostrarAutorizacion(false);
+      setAccionPendiente(null);
       return;
     }
 
-    // Mensaje diferente para móviles (no tienen número)
     const mensajeConfirmacion = numeroEliminado 
       ? `¿ANULAR esta consulta?\n\nMotivo: ${motivo}\n\nLos pacientes posteriores se renumerarán automáticamente.`
       : `¿ANULAR este servicio móvil?\n\nMotivo: ${motivo}`;
 
     if (!confirm(mensajeConfirmacion)) {
+      setMostrarAutorizacion(false);
+      setAccionPendiente(null);
       return;
     }
 
     try {
-      const usuarioActual = localStorage.getItem('nombreUsuarioConrad') || 'Desconocido';
+      const usuarioActual = sessionStorage.getItem('nombreUsuarioConrad') || 'Desconocido';
       
-      // Anular la consulta y quitar su número
       const { error } = await supabase
         .from('consultas')
         .update({
           anulado: true,
-          numero_paciente: null, // Quitar el número
+          numero_paciente: null,
           fecha_anulacion: new Date().toISOString(),
           usuario_anulo: usuarioActual,
           motivo_anulacion: motivo
@@ -99,23 +127,20 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
       if (error) throw error;
 
-      // ✅ Solo renumerar si es paciente regular (tiene número)
       let consultasPosteriores: any[] = [];
       
       if (numeroEliminado !== null && numeroEliminado !== undefined) {
-        // Renumerar todos los pacientes NO anulados posteriores (bajar en 1)
         const { data, error: errorConsultar } = await supabase
           .from('consultas')
           .select('id, numero_paciente')
           .eq('fecha', fecha)
-          .or('anulado.is.null,anulado.eq.false') // Solo las activas
+          .or('anulado.is.null,anulado.eq.false')
           .gt('numero_paciente', numeroEliminado)
           .order('numero_paciente', { ascending: true });
 
         if (errorConsultar) throw errorConsultar;
         consultasPosteriores = data || [];
 
-        // Renumerar cada consulta posterior
         if (consultasPosteriores.length > 0) {
           for (const consulta of consultasPosteriores) {
             const { error: errorActualizar } = await supabase
@@ -128,34 +153,67 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         }
       }
 
+      // ✅ Registrar en log
+      const usuario = sessionStorage.getItem('usernameConrad') || '';
+      const nombreUsuario = sessionStorage.getItem('nombreUsuarioConrad') || '';
+      const rol = sessionStorage.getItem('rolUsuarioConrad') || '';
+
+      await supabase.rpc('registrar_actividad', {
+        p_usuario: usuario,
+        p_nombre_usuario: nombreUsuario,
+        p_rol: rol,
+        p_modulo: 'sanatorio',
+        p_accion: 'anular',
+        p_tipo_registro: 'consulta',
+        p_registro_id: consultaId,
+        p_detalles: {
+          paciente: nombrePaciente,
+          motivo: motivo,
+          numero_paciente: numeroEliminado
+        },
+        p_requirio_autorizacion: true
+      });
+
       const mensajeExito = numeroEliminado
         ? `✅ CONSULTA ANULADA\n\nUsuario: ${usuarioActual}\nMotivo: ${motivo}\n\n${consultasPosteriores.length} pacientes renumerados.`
         : `✅ SERVICIO MÓVIL ANULADO\n\nUsuario: ${usuarioActual}\nMotivo: ${motivo}`;
 
       alert(mensajeExito);
       cargarConsultas();
+      setMostrarAutorizacion(false);
+      setAccionPendiente(null);
     } catch (error) {
       console.error('Error al eliminar consulta:', error);
       alert('Error al eliminar consulta');
     }
   };
 
-  const eliminarEstudio = async (consultaId: string, detalleId: string, precioEstudio: number) => {
-    if (!confirm('¿Está seguro de eliminar este estudio?\n\nSe actualizará el total de la consulta automáticamente.')) {
-      return;
-    }
+  // ✅ NUEVO: Solicitar autorización para eliminar estudio
+  const solicitarEliminarEstudio = (consultaId: string, detalleId: string, precioEstudio: number, nombreEstudio: string, nombrePaciente: string) => {
+    setAccionPendiente({
+      tipo: 'eliminar_estudio',
+      datos: { consultaId, detalleId, precioEstudio, nombreEstudio, nombrePaciente }
+    });
+    setMostrarAutorizacion(true);
+  };
+
+  // ✅ MODIFICADO: Eliminar estudio (ejecuta después de autorización)
+  const eliminarEstudio = async () => {
+    if (!accionPendiente || accionPendiente.tipo !== 'eliminar_estudio') return;
+
+    const { consultaId, detalleId, precioEstudio } = accionPendiente.datos;
 
     try {
-      // Verificar cuántos estudios tiene la consulta
       const consulta = consultas.find(c => c.id === consultaId);
       if (!consulta) return;
 
       if (consulta.detalle_consultas.length === 1) {
         alert('❌ No puedes eliminar el único estudio de la consulta.\n\nSi deseas eliminar toda la consulta, usa el botón de eliminar consulta (🗑️) en la parte superior.');
+        setMostrarAutorizacion(false);
+        setAccionPendiente(null);
         return;
       }
 
-      // Eliminar el detalle
       const { error: errorDetalle } = await supabase
         .from('detalle_consultas')
         .delete()
@@ -163,28 +221,66 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
       if (errorDetalle) throw errorDetalle;
 
+      // ✅ Registrar en log
+      const usuario = sessionStorage.getItem('usernameConrad') || '';
+      const nombreUsuario = sessionStorage.getItem('nombreUsuarioConrad') || '';
+      const rol = sessionStorage.getItem('rolUsuarioConrad') || '';
+
+      await supabase.rpc('registrar_actividad', {
+        p_usuario: usuario,
+        p_nombre_usuario: nombreUsuario,
+        p_rol: rol,
+        p_modulo: 'sanatorio',
+        p_accion: 'eliminar',
+        p_tipo_registro: 'estudio',
+        p_registro_id: detalleId,
+        p_detalles: {
+          paciente: accionPendiente.datos.nombrePaciente,
+          estudio: accionPendiente.datos.nombreEstudio,
+          precio: precioEstudio
+        },
+        p_requirio_autorizacion: true
+      });
+
       alert(`✅ Estudio eliminado.\n\nSe ha descontado Q ${precioEstudio.toFixed(2)} del total.`);
       cargarConsultas();
+      setMostrarAutorizacion(false);
+      setAccionPendiente(null);
     } catch (error) {
       console.error('Error al eliminar estudio:', error);
       alert('❌ Error al eliminar estudio');
     }
   };
 
-  const abrirEditarPaciente = (consulta: any) => {
+  // ✅ NUEVO: Solicitar autorización para editar paciente
+  const solicitarEditarPaciente = (consulta: any) => {
+    setAccionPendiente({
+      tipo: 'editar_paciente',
+      datos: { consulta }
+    });
+    setMostrarAutorizacion(true);
+  };
+
+  // ✅ MODIFICADO: Abrir modal editar (ejecuta después de autorización)
+  const abrirEditarPaciente = () => {
+    if (!accionPendiente || accionPendiente.tipo !== 'editar_paciente') return;
+
+    const { consulta } = accionPendiente.datos;
     setPacienteEditando(consulta.pacientes);
     setConsultaSeleccionada(consulta);
     setShowEditModal(true);
+    setMostrarAutorizacion(false);
+    setAccionPendiente(null);
   };
 
   const abrirAgregarEstudio = (consulta: any) => {
+    // ✅ NO REQUIERE AUTORIZACIÓN
     setConsultaSeleccionada(consulta);
     setShowAgregarEstudioModal(true);
   };
 
   const handleGuardarPaciente = async (pacienteData: any, medicoId: string | null, medicoNombre: string | null) => {
     try {
-      // Actualizar paciente
       const { error: errorPaciente } = await supabase
         .from('pacientes')
         .update({
@@ -198,17 +294,37 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
       if (errorPaciente) throw errorPaciente;
 
-      // Actualizar consulta con info del médico
       const { error: errorConsulta } = await supabase
-  .from('consultas')
-  .update({
-    medico_id: medicoId,
-    medico_recomendado: medicoNombre,
-    sin_informacion_medico: !(medicoId || medicoNombre) // ✅ Si no tiene médico, marcar como sin info
-  })
-  .eq('id', consultaSeleccionada.id);
+        .from('consultas')
+        .update({
+          medico_id: medicoId,
+          medico_recomendado: medicoNombre,
+          sin_informacion_medico: !(medicoId || medicoNombre)
+        })
+        .eq('id', consultaSeleccionada.id);
 
       if (errorConsulta) throw errorConsulta;
+
+      // ✅ Registrar en log
+      const usuario = sessionStorage.getItem('usernameConrad') || '';
+      const nombreUsuario = sessionStorage.getItem('nombreUsuarioConrad') || '';
+      const rol = sessionStorage.getItem('rolUsuarioConrad') || '';
+
+      await supabase.rpc('registrar_actividad', {
+        p_usuario: usuario,
+        p_nombre_usuario: nombreUsuario,
+        p_rol: rol,
+        p_modulo: 'sanatorio',
+        p_accion: 'editar',
+        p_tipo_registro: 'paciente',
+        p_registro_id: pacienteEditando.id,
+        p_detalles: {
+          nombre: pacienteData.nombre,
+          edad: pacienteData.edad,
+          medico: medicoNombre || 'Sin médico'
+        },
+        p_requirio_autorizacion: true
+      });
 
       alert('Paciente y médico actualizados exitosamente');
       setShowEditModal(false);
@@ -235,7 +351,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     }
 
     try {
-      // Determinar qué campo actualizar según forma de pago
       let updateData: any = {};
       if (consultaSeleccionada.forma_pago === 'tarjeta') {
         updateData.numero_voucher = voucherEditando;
@@ -244,7 +359,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       } else if (consultaSeleccionada.forma_pago === 'efectivo_facturado') {
         updateData.numero_factura = voucherEditando;
         updateData.requiere_factura = true;
-        // Guardar NIT si se proporcionó, sino usar C/F
         updateData.nit = nitEditando.trim() || 'C/F';
       }
 
@@ -286,7 +400,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         requiere_factura: requiereFacturaEditando
       };
 
-      // Si cambia a una forma de pago que no requiere ciertos campos, limpiarlos
       if (formaPagoEditando !== 'tarjeta') {
         updateData.numero_voucher = null;
       }
@@ -320,19 +433,16 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   };
 
   const reimprimirRecibo = (consulta: any) => {
-    // Si tiene médico (nombre o ID) y NO marcó "sin información", mostrar
     const tieneMedico = consulta.medicos || consulta.medico_recomendado;
     const esReferente = tieneMedico && !consulta.sin_informacion_medico;
     
     const estudiosRecibo = consulta.detalle_consultas.map((d: any) => ({
       nombre: d.sub_estudios.nombre,
       precio: d.precio,
-      comentarios: d.comentarios || undefined // ✅ NUEVO
+      comentarios: d.comentarios || undefined
     }));
 
     const total = estudiosRecibo.reduce((sum: number, e: any) => sum + e.precio, 0);
-
-    // Usar nombre del médico guardado o el médico recomendado manual
     const nombreMedico = consulta.medicos?.nombre || consulta.medico_recomendado;
 
     const datosRecibo = {
@@ -353,13 +463,11 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       sinInfoMedico: consulta.sin_informacion_medico
     };
 
-    // ✅ NUEVO: Guardar datos y mostrar modal
     setDatosReciboTemp(datosRecibo);
     setShowModalTipoRecibo(true);
   };
 
   const reimprimirSoloAdicionales = (consulta: any) => {
-    // Filtrar solo los estudios marcados como adicionales
     const estudiosAdicionales = consulta.detalle_consultas.filter((d: any) => d.es_adicional);
 
     if (estudiosAdicionales.length === 0) {
@@ -367,7 +475,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       return;
     }
 
-    // Si tiene médico (nombre o ID) y NO marcó "sin información", mostrar
     const tieneMedico = consulta.medicos || consulta.medico_recomendado;
     const esReferente = tieneMedico && !consulta.sin_informacion_medico;
     
@@ -377,8 +484,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     }));
 
     const total = estudiosRecibo.reduce((sum: number, e: any) => sum + e.precio, 0);
-
-    // Usar nombre del médico guardado o el médico recomendado manual
     const nombreMedico = consulta.medicos?.nombre || consulta.medico_recomendado;
 
     const datosRecibo = {
@@ -399,12 +504,10 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       sinInfoMedico: consulta.sin_informacion_medico
     };
 
-    // ✅ NUEVO: Guardar datos y mostrar modal
     setDatosReciboTemp(datosRecibo);
     setShowModalTipoRecibo(true);
   };
 
-  // ✅ NUEVA FUNCIÓN: Imprimir recibo seleccionado
   const imprimirReciboSeleccionado = (tipoRecibo: 'completo' | 'medico') => {
     if (!datosReciboTemp) return;
 
@@ -444,7 +547,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     try {
       setLoading(true);
       
-      // Obtener todas las consultas activas del día ordenadas por created_at (orden de llegada)
       const { data: consultasOrdenadas, error: errorConsultar } = await supabase
         .from('consultas')
         .select('id, created_at')
@@ -460,7 +562,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         return;
       }
 
-      // Actualizar cada consulta con su nuevo número
       for (let i = 0; i < consultasOrdenadas.length; i++) {
         const { error: errorActualizar } = await supabase
           .from('consultas')
@@ -480,7 +581,54 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     }
   };
 
-  // Función para renderizar una consulta (activa o anulada)
+  // ✅ NUEVO: Ejecutar acción autorizada
+  const ejecutarAccionAutorizada = () => {
+    if (!accionPendiente) return;
+
+    switch (accionPendiente.tipo) {
+      case 'eliminar_consulta':
+        eliminarConsulta();
+        break;
+      case 'editar_paciente':
+        abrirEditarPaciente();
+        break;
+      case 'eliminar_estudio':
+        eliminarEstudio();
+        break;
+    }
+  };
+
+  // ✅ NUEVO: Obtener descripción para modal
+  const getDescripcionAccion = () => {
+    if (!accionPendiente) return '';
+
+    switch (accionPendiente.tipo) {
+      case 'eliminar_consulta':
+        return `${accionPendiente.datos.nombrePaciente}${accionPendiente.datos.numeroEliminado ? ` - #${accionPendiente.datos.numeroEliminado}` : ' - Servicio Móvil'}`;
+      case 'editar_paciente':
+        return `${accionPendiente.datos.consulta.pacientes.nombre} - ${accionPendiente.datos.consulta.pacientes.edad} años`;
+      case 'eliminar_estudio':
+        return `${accionPendiente.datos.nombreEstudio} - Paciente: ${accionPendiente.datos.nombrePaciente}`;
+      default:
+        return '';
+    }
+  };
+
+  const getNombreAccion = () => {
+    if (!accionPendiente) return '';
+    
+    switch (accionPendiente.tipo) {
+      case 'eliminar_consulta':
+        return 'Anular Consulta';
+      case 'editar_paciente':
+        return 'Editar Paciente';
+      case 'eliminar_estudio':
+        return 'Eliminar Estudio';
+      default:
+        return '';
+    }
+  };
+
   const renderConsulta = (consulta: any, index: number) => {
     const total = consulta.detalle_consultas.reduce((sum: number, d: any) => sum + d.precio, 0);
     
@@ -531,7 +679,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 >
                   <Plus size={18} />
                 </button>
-                {/* Botón para imprimir SOLO adicionales */}
                 {consulta.detalle_consultas.some((d: any) => d.es_adicional) && (
                   <button
                     onClick={() => reimprimirSoloAdicionales(consulta)}
@@ -548,15 +695,17 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 >
                   <Printer size={18} />
                 </button>
+                {/* ✅ MODIFICADO: Solicitar autorización para editar */}
                 <button
-                  onClick={() => abrirEditarPaciente(consulta)}
+                  onClick={() => solicitarEditarPaciente(consulta)}
                   className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
                   title="Editar paciente"
                 >
                   <Edit2 size={18} />
                 </button>
+                {/* ✅ MODIFICADO: Solicitar autorización para eliminar */}
                 <button
-                  onClick={() => eliminarConsulta(consulta.id, consulta.numero_paciente)}
+                  onClick={() => solicitarEliminarConsulta(consulta.id, consulta.numero_paciente, consulta.pacientes.nombre)}
                   className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
                   title="Anular consulta"
                 >
@@ -599,9 +748,16 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                   <div className="flex justify-between items-center gap-2">
                     <span className="flex-1">• {detalle.sub_estudios.nombre}</span>
                     <span className="font-medium">Q {detalle.precio.toFixed(2)}</span>
+                    {/* ✅ MODIFICADO: Solicitar autorización para eliminar estudio */}
                     {!consulta.anulado && (
                       <button
-                        onClick={() => eliminarEstudio(consulta.id, detalle.id, detalle.precio)}
+                        onClick={() => solicitarEliminarEstudio(
+                          consulta.id, 
+                          detalle.id, 
+                          detalle.precio, 
+                          detalle.sub_estudios.nombre,
+                          consulta.pacientes.nombre
+                        )}
                         className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
                         title="Eliminar estudio"
                       >
@@ -609,13 +765,11 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                       </button>
                     )}
                   </div>
-                  {/* ✅ NUEVO: Mostrar comentarios si existen */}
                   {detalle.comentarios && detalle.comentarios.trim() !== '' && (
                     <div className="text-xs text-gray-600 mt-1 ml-4 p-2 bg-blue-50 rounded">
                       <strong>📝 Comentarios:</strong> {detalle.comentarios}
                     </div>
                   )}
-                  {/* Mostrar factura individual si el estudio la tiene */}
                   {detalle.numero_factura && (
                     <div className="text-xs text-gray-600 mt-1 ml-4">
                       <span className="bg-blue-100 px-2 py-1 rounded">
@@ -658,7 +812,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 </button>
               )}
               
-              {/* Solo mostrar NIT si requiere_factura está activado */}
               {consulta.requiere_factura && (
                 <span>
                   | <strong>NIT:</strong> {consulta.nit || 'C/F'}
@@ -670,10 +823,8 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
             </div>
           </div>
 
-          {/* Botones para agregar info pendiente */}
           {!consulta.anulado && (
             <div className="flex gap-2 flex-wrap">
-              {/* Voucher tarjeta pendiente */}
               {consulta.forma_pago === 'tarjeta' && !consulta.numero_voucher && (
                 <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded px-3 py-2">
                   <span className="text-yellow-700 font-semibold text-sm">
@@ -688,7 +839,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 </div>
               )}
 
-              {/* Número transferencia pendiente */}
               {consulta.forma_pago === 'transferencia' && !consulta.numero_transferencia && (
                 <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded px-3 py-2">
                   <span className="text-yellow-700 font-semibold text-sm">
@@ -703,7 +853,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 </div>
               )}
 
-              {/* Factura pendiente */}
               {consulta.forma_pago === 'efectivo_facturado' && !consulta.numero_factura && (
                 <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded px-3 py-2">
                   <span className="text-yellow-700 font-semibold text-sm">
@@ -718,7 +867,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 </div>
               )}
 
-              {/* Voucher agregado */}
               {consulta.numero_voucher && (
                 <div className="flex items-center gap-2 text-sm bg-green-50 border border-green-300 rounded px-3 py-2">
                   <span><strong>Voucher:</strong> {consulta.numero_voucher}</span>
@@ -732,7 +880,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 </div>
               )}
 
-              {/* Transferencia agregada */}
               {consulta.numero_transferencia && (
                 <div className="flex items-center gap-2 text-sm bg-green-50 border border-green-300 rounded px-3 py-2">
                   <span><strong>Transferencia:</strong> {consulta.numero_transferencia}</span>
@@ -746,7 +893,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 </div>
               )}
 
-              {/* Número factura */}
               {consulta.numero_factura && (
                 <div className="flex items-center gap-2 text-sm bg-blue-50 border border-blue-300 rounded px-3 py-2">
                   <span><strong>No. Factura:</strong> {consulta.numero_factura}</span>
@@ -780,7 +926,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       </header>
 
       <div className="container mx-auto p-4">
-        {/* Selector de fecha y búsqueda */}
         <div className="card mb-6">
           <div className="flex items-center gap-4 flex-wrap">
             <Calendar className="text-blue-600" size={24} />
@@ -818,7 +963,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           </div>
         </div>
 
-        {/* Pestañas */}
         <div className="mb-6 flex gap-2 border-b border-gray-200">
           <button
             onClick={() => setPestanaActiva('regulares')}
@@ -874,22 +1018,18 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           </button>
         </div>
 
-        {/* Lista de consultas */}
         {loading ? (
           <div className="text-center py-12">
             <p className="text-lg text-gray-600">Cargando...</p>
           </div>
         ) : (
           <>
-            {/* Mostrar consultas activas */}
             {pestanaActiva !== 'anuladas' && (
               <>
                 {consultas
                   .filter(c => {
-                    // Filtrar por pestaña
                     if (pestanaActiva === 'regulares' && c.es_servicio_movil === true) return false;
                     if (pestanaActiva === 'moviles' && c.es_servicio_movil !== true) return false;
-                    // Filtrar por nombre
                     return c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase());
                   })
                   .length === 0 ? (
@@ -903,10 +1043,8 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                   <div className="space-y-4">
                     {consultas
                       .filter(c => {
-                        // Filtrar por pestaña
                         if (pestanaActiva === 'regulares' && c.es_servicio_movil === true) return false;
                         if (pestanaActiva === 'moviles' && c.es_servicio_movil !== true) return false;
-                        // Filtrar por nombre
                         return c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase());
                       })
                       .map((consulta, index) => renderConsulta(consulta, index))
@@ -916,7 +1054,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
               </>
             )}
 
-            {/* Mostrar consultas anuladas */}
             {pestanaActiva === 'anuladas' && (
               <>
                 {consultasAnuladas.length === 0 ? (
@@ -955,7 +1092,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         )}
       </div>
 
-      {/* Modal de edición */}
       {showEditModal && pacienteEditando && consultaSeleccionada && (
         <EditarPacienteModal
           paciente={pacienteEditando}
@@ -969,7 +1105,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         />
       )}
 
-      {/* Modal de agregar estudios */}
       {showAgregarEstudioModal && consultaSeleccionada && (
         <AgregarEstudioModal
           consulta={consultaSeleccionada}
@@ -981,7 +1116,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         />
       )}
 
-      {/* Modal editar voucher/factura/transferencia */}
       {showEditVoucherModal && consultaSeleccionada && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
@@ -1027,7 +1161,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
               />
             </div>
 
-            {/* Campo NIT solo para efectivo_facturado */}
             {consultaSeleccionada.forma_pago === 'efectivo_facturado' && (
               <div className="mb-4">
                 <label className="label">NIT (dejar vacío para C/F)</label>
@@ -1064,7 +1197,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         </div>
       )}
 
-      {/* Modal editar forma de pago */}
       {showEditFormaPagoModal && consultaSeleccionada && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
@@ -1158,7 +1290,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         </div>
       )}
 
-      {/* ✅ NUEVO: Modal de selección de tipo de recibo */}
       {showModalTipoRecibo && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
@@ -1199,6 +1330,19 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ✅ NUEVO: Modal de Autorización */}
+      {mostrarAutorizacion && accionPendiente && (
+        <AutorizacionModal
+          accion={getNombreAccion()}
+          detalles={getDescripcionAccion()}
+          onAutorizado={ejecutarAccionAutorizada}
+          onCancelar={() => {
+            setMostrarAutorizacion(false);
+            setAccionPendiente(null);
+          }}
+        />
       )}
     </div>
   );
