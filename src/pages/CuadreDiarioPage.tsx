@@ -1196,15 +1196,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   )}
                   {mostrarGastos ? <ChevronUp size={16} className="text-gray-400 ml-1" /> : <ChevronDown size={16} className="text-gray-400 ml-1" />}
                 </button>
-                {!cuadreCerrado && !cajaBloqueada && (
-                  <button
-                    onClick={() => setShowModalGasto(true)}
-                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
-                  >
-                    <Plus size={16} />
-                    Agregar
-                  </button>
-                )}
+                <button
+                  onClick={() => setShowModalGasto(true)}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                >
+                  <Plus size={16} />
+                  Agregar
+                </button>
               </div>
 
               {mostrarGastos && (
@@ -1234,14 +1232,12 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <div className="text-lg font-bold text-red-600">
                             - Q {gasto.monto.toFixed(2)}
                           </div>
-                          {!cuadreCerrado && !cajaBloqueada && (
-                            <button
-                              onClick={() => eliminarGasto(gasto.id)}
-                              className="text-red-600 hover:bg-red-100 p-2 rounded transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => eliminarGasto(gasto.id)}
+                            className="text-red-600 hover:bg-red-100 p-2 rounded transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </div>
                     ))}
