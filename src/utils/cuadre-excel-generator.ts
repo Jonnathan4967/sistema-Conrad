@@ -1,6 +1,7 @@
 /**
  * Generador de Cuadre Diario en Excel - CONRAD CENTRAL
  * Con formato profesional usando ExcelJS
+ * ✅ INCLUYE: Desglose de servicios móviles
  */
 import ExcelJS from 'exceljs';
 
@@ -19,14 +20,16 @@ interface CuadreDatos {
     efectivo: number;
     tarjeta: number;
     depositado: number;
+    estado_cuenta?: number; // ✅ NUEVO
   };
   cuadreCorrecto: boolean;
   observaciones?: string;
-  cajero?: string; // ✅ AGREGADO
+  cajero?: string;
   cuadresPorFormaPago: Array<{
     forma_pago: string;
     cantidad: number;
     total: number;
+    es_servicio_movil?: boolean; // ✅ NUEVO
   }>;
 }
 
@@ -77,7 +80,6 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
   worksheet.getCell(`B${filaActual}`).font = { bold: true };
   worksheet.getCell(`C${filaActual}`).value = datos.horaActual;
   
-  // ✅ NUEVO: Mostrar cajero si existe
   if (datos.cajero) {
     filaActual++;
     worksheet.getCell(`B${filaActual}`).value = 'Cajero';
@@ -106,7 +108,7 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
   };
   filaActual++;
 
-  worksheet.getCell(`B${filaActual}`).value = 'Total Consultas';
+  worksheet.getCell(`B${filaActual}`).value = 'Total Consultas (Regulares + Móviles)';
   worksheet.getCell(`B${filaActual}`).font = { bold: true };
   worksheet.getCell(`C${filaActual}`).value = datos.totalConsultas;
   worksheet.getCell(`C${filaActual}`).alignment = { horizontal: 'center' };
@@ -141,7 +143,7 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
   // Headers de tabla
   const headers = ['Forma de Pago', 'Esperado', 'Contado', 'Diferencia', 'Estado'];
   headers.forEach((header, idx) => {
-    const cell = worksheet.getCell(filaActual, idx + 2); // Columna B en adelante
+    const cell = worksheet.getCell(filaActual, idx + 2);
     cell.value = header;
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = {
@@ -198,7 +200,6 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
     };
     worksheet.getCell(filaActual, 6).font = { bold: true };
 
-    // Bordes
     for (let col = 2; col <= 6; col++) {
       worksheet.getCell(filaActual, col).border = {
         top: { style: 'thin' },
@@ -258,10 +259,10 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
     filaActual += 2;
   }
 
-  // ===== DETALLE POR FORMA DE PAGO =====
+  // ===== DETALLE POR FORMA DE PAGO (CONSULTAS REGULARES) =====
   worksheet.mergeCells(`A${filaActual}:F${filaActual}`);
   const cellDetalle = worksheet.getCell(`A${filaActual}`);
-  cellDetalle.value = 'DETALLE POR FORMA DE PAGO';
+  cellDetalle.value = '👥 CONSULTAS REGULARES - DETALLE POR FORMA DE PAGO';
   cellDetalle.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
   cellDetalle.fill = {
     type: 'pattern',
@@ -277,7 +278,7 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
   };
   filaActual++;
 
-  // Headers detalle
+  // Headers detalle regulares
   worksheet.getCell(filaActual, 2).value = 'Forma de Pago';
   worksheet.getCell(filaActual, 3).value = 'Cantidad';
   worksheet.getCell(filaActual, 4).value = 'Total';
@@ -300,27 +301,135 @@ export const generarCuadreExcel = async (datos: CuadreDatos): Promise<void> => {
   }
   filaActual++;
 
-  // Datos detalle
-  datos.cuadresPorFormaPago.forEach(cuadre => {
-    worksheet.getCell(filaActual, 2).value = cuadre.forma_pago;
-    worksheet.getCell(filaActual, 3).value = cuadre.cantidad;
-    worksheet.getCell(filaActual, 3).alignment = { horizontal: 'center' };
-    worksheet.getCell(filaActual, 4).value = cuadre.total;
+  // ✅ FILTRAR SOLO REGULARES
+  const regulares = datos.cuadresPorFormaPago.filter(c => !c.es_servicio_movil);
+  if (regulares.length > 0) {
+    regulares.forEach(cuadre => {
+      worksheet.getCell(filaActual, 2).value = cuadre.forma_pago;
+      worksheet.getCell(filaActual, 3).value = cuadre.cantidad;
+      worksheet.getCell(filaActual, 3).alignment = { horizontal: 'center' };
+      worksheet.getCell(filaActual, 4).value = cuadre.total;
+      worksheet.getCell(filaActual, 4).numFmt = '#,##0.00';
+      worksheet.getCell(filaActual, 4).alignment = { horizontal: 'right' };
+      
+      for (let col = 2; col <= 4; col++) {
+        worksheet.getCell(filaActual, col).border = {
+          top: { style: 'thin' },
+          bottom: { style: 'thin' },
+          left: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      }
+      filaActual++;
+    });
+
+    // Total regulares
+    const totalRegulares = regulares.reduce((sum, c) => sum + c.total, 0);
+    worksheet.getCell(filaActual, 2).value = 'TOTAL REGULARES:';
+    worksheet.getCell(filaActual, 2).font = { bold: true };
+    worksheet.getCell(filaActual, 4).value = totalRegulares;
     worksheet.getCell(filaActual, 4).numFmt = '#,##0.00';
     worksheet.getCell(filaActual, 4).alignment = { horizontal: 'right' };
-    
-    for (let col = 2; col <= 4; col++) {
-      worksheet.getCell(filaActual, col).border = {
-        top: { style: 'thin' },
-        bottom: { style: 'thin' },
-        left: { style: 'thin' },
-        right: { style: 'thin' }
-      };
-    }
+    worksheet.getCell(filaActual, 4).font = { bold: true };
+    worksheet.getCell(filaActual, 4).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD9E1F2' }
+    };
     filaActual++;
-  });
+  } else {
+    worksheet.getCell(filaActual, 2).value = 'No hay consultas regulares';
+    worksheet.getCell(filaActual, 2).font = { italic: true, color: { argb: 'FF9E9E9E' } };
+    filaActual++;
+  }
 
-  // ✅ NUEVO: Sección de Firma Digital (si hay cajero)
+  filaActual += 2;
+
+  // ===== SERVICIOS MÓVILES =====
+  worksheet.mergeCells(`A${filaActual}:F${filaActual}`);
+  const cellMoviles = worksheet.getCell(`A${filaActual}`);
+  cellMoviles.value = '📱 SERVICIOS MÓVILES - DETALLE POR FORMA DE PAGO';
+  cellMoviles.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+  cellMoviles.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF7B1FA2' }
+  };
+  cellMoviles.alignment = { horizontal: 'center', vertical: 'middle' };
+  cellMoviles.border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+  filaActual++;
+
+  // Headers móviles
+  worksheet.getCell(filaActual, 2).value = 'Forma de Pago';
+  worksheet.getCell(filaActual, 3).value = 'Cantidad';
+  worksheet.getCell(filaActual, 4).value = 'Total';
+  
+  for (let col = 2; col <= 4; col++) {
+    const cell = worksheet.getCell(filaActual, col);
+    cell.font = { bold: true };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE1BEE7' }
+    };
+    cell.alignment = { horizontal: 'center' };
+    cell.border = {
+      top: { style: 'thin' },
+      bottom: { style: 'thin' },
+      left: { style: 'thin' },
+      right: { style: 'thin' }
+    };
+  }
+  filaActual++;
+
+  // ✅ FILTRAR SOLO MÓVILES
+  const moviles = datos.cuadresPorFormaPago.filter(c => c.es_servicio_movil);
+  if (moviles.length > 0) {
+    moviles.forEach(movil => {
+      worksheet.getCell(filaActual, 2).value = movil.forma_pago;
+      worksheet.getCell(filaActual, 3).value = movil.cantidad;
+      worksheet.getCell(filaActual, 3).alignment = { horizontal: 'center' };
+      worksheet.getCell(filaActual, 4).value = movil.total;
+      worksheet.getCell(filaActual, 4).numFmt = '#,##0.00';
+      worksheet.getCell(filaActual, 4).alignment = { horizontal: 'right' };
+      
+      for (let col = 2; col <= 4; col++) {
+        worksheet.getCell(filaActual, col).border = {
+          top: { style: 'thin' },
+          bottom: { style: 'thin' },
+          left: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      }
+      filaActual++;
+    });
+
+    // Total móviles
+    const totalMoviles = moviles.reduce((sum, m) => sum + m.total, 0);
+    worksheet.getCell(filaActual, 2).value = 'TOTAL MÓVILES:';
+    worksheet.getCell(filaActual, 2).font = { bold: true };
+    worksheet.getCell(filaActual, 4).value = totalMoviles;
+    worksheet.getCell(filaActual, 4).numFmt = '#,##0.00';
+    worksheet.getCell(filaActual, 4).alignment = { horizontal: 'right' };
+    worksheet.getCell(filaActual, 4).font = { bold: true };
+    worksheet.getCell(filaActual, 4).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE1BEE7' }
+    };
+    filaActual++;
+  } else {
+    worksheet.getCell(filaActual, 2).value = 'No hay servicios móviles registrados';
+    worksheet.getCell(filaActual, 2).font = { italic: true, color: { argb: 'FF9E9E9E' } };
+    filaActual++;
+  }
+
+  // ✅ FIRMA DIGITAL
   if (datos.cajero) {
     filaActual += 2;
     

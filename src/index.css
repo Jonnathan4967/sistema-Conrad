@@ -177,3 +177,24 @@
     margin-bottom: 0.25rem;
   }
 }
+
+/* ✅ Deshabilitar scroll en inputs numéricos */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ✅ Deshabilitar cambio de valor con scroll del mouse */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+input[type="number"]:focus {
+  -moz-appearance: number-input;
+}

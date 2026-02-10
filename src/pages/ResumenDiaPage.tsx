@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { GenerarCodigosPanel } from '../components/GenerarCodigosPanel';
+import { generarCuadreExcel } from '../utils/cuadre-excel-generator';
 
 interface ResumenDiaPageProps {
   onBack: () => void;
@@ -164,6 +165,119 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
     }
   };
 
+  const descargarExcelCuadre = async () => {
+    try {
+      // Cargar cuadre guardado
+      const { data: cuadreGuardado, error } = await supabase
+        .from('cuadres_diarios')
+        .select('*')
+        .eq('fecha', fecha)
+        .maybeSingle();
+
+      if (error) {
+        alert('❌ Error al cargar cuadre guardado');
+        return;
+      }
+
+      if (!cuadreGuardado) {
+        alert('⚠️ No hay cuadre guardado para esta fecha');
+        return;
+      }
+
+      // Cargar consultas para obtener cuadres por forma de pago
+      const { data: consultas } = await supabase
+        .from('consultas')
+        .select('*, detalle_consultas(precio)')
+        .eq('fecha', fecha)
+        .or('anulado.is.null,anulado.eq.false');
+
+      // Calcular cuadres por forma de pago
+      const cuadrePorForma: any = {};
+      
+      const consultasRegulares = consultas?.filter(c => !c.es_servicio_movil) || [];
+      const consultasMoviles = consultas?.filter(c => c.es_servicio_movil) || [];
+
+      // Procesar regulares
+      consultasRegulares.forEach((c: any) => {
+        const total = c.detalle_consultas?.reduce((sum: number, d: any) => sum + d.precio, 0) || 0;
+        const forma = c.forma_pago;
+        if (!cuadrePorForma[forma]) {
+          cuadrePorForma[forma] = { forma_pago: forma, cantidad: 0, total: 0, es_servicio_movil: false };
+        }
+        cuadrePorForma[forma].cantidad++;
+        cuadrePorForma[forma].total += total;
+      });
+
+      // Procesar móviles
+      consultasMoviles.forEach((c: any) => {
+        const total = c.detalle_consultas?.reduce((sum: number, d: any) => sum + d.precio, 0) || 0;
+        const forma = c.forma_pago;
+        const key = `${forma}_movil`;
+        if (!cuadrePorForma[key]) {
+          cuadrePorForma[key] = { forma_pago: forma, cantidad: 0, total: 0, es_servicio_movil: true };
+        }
+        cuadrePorForma[key].cantidad++;
+        cuadrePorForma[key].total += total;
+      });
+
+      // Calcular totales
+      const efectivoTotal = cuadrePorForma['efectivo']?.total || 0;
+      const tarjetaTotal = cuadrePorForma['tarjeta']?.total || 0;
+      const transferenciaTotal = (cuadrePorForma['efectivo_facturado']?.total || 0) + 
+                                  (cuadrePorForma['transferencia']?.total || 0);
+
+      const diferencias = {
+        efectivo: cuadreGuardado.efectivo_contado - efectivoTotal,
+        tarjeta: cuadreGuardado.tarjeta_contado - tarjetaTotal,
+        depositado: cuadreGuardado.transferencia_contado - transferenciaTotal
+      };
+
+      const cuadreCorrecto = Math.abs(diferencias.efectivo) < 0.01 &&
+                             Math.abs(diferencias.tarjeta) < 0.01 &&
+                             Math.abs(diferencias.depositado) < 0.01;
+
+      // Generar Excel
+      await generarCuadreExcel({
+        fecha: new Date(fecha).toLocaleDateString('es-GT'),
+        horaActual: new Date().toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' }),
+        totalConsultas: consultas?.length || 0,
+        totalVentas: resumen.totalIngresos,
+        efectivoEsperado: efectivoTotal,
+        efectivoContado: parseFloat(cuadreGuardado.efectivo_contado || 0),
+        tarjetaEsperada: tarjetaTotal,
+        tarjetaContado: parseFloat(cuadreGuardado.tarjeta_contado || 0),
+        transferenciaEsperada: transferenciaTotal,
+        transferenciaContado: parseFloat(cuadreGuardado.transferencia_contado || 0),
+        diferencias,
+        cuadreCorrecto,
+        observaciones: cuadreGuardado.observaciones,
+        cajero: cuadreGuardado.nombre_cajero,
+        cuadresPorFormaPago: Object.values(cuadrePorForma).map((c: any) => ({
+          forma_pago: getFormaPagoNombre(c.forma_pago),
+          cantidad: c.cantidad,
+          total: c.total,
+          es_servicio_movil: c.es_servicio_movil
+        }))
+      });
+
+      alert('✅ Excel descargado exitosamente');
+    } catch (error) {
+      console.error('Error al descargar Excel:', error);
+      alert('❌ Error al descargar Excel');
+    }
+  };
+
+  const getFormaPagoNombre = (forma: string) => {
+    const formas: any = {
+      efectivo: 'Efectivo',
+      tarjeta: 'Tarjeta',
+      transferencia: 'Transferencia',
+      efectivo_facturado: 'Depósito',
+      estado_cuenta: 'Estado de Cuenta'
+    };
+    return formas[forma] || forma;
+  };
+
   const getIconoAccion = (accion: string) => {
     switch (accion.toLowerCase()) {
       case 'crear': return <PlusCircle className="text-green-600" size={16} />;
@@ -218,6 +332,27 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* ✅ NUEVO: Botón descargar Excel */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <Calendar className="text-blue-600" size={24} />
+            <input
+              type="date"
+              className="px-4 py-2 border border-gray-300 rounded-lg"
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+            />
+          </div>
+          
+          <button
+            onClick={descargarExcelCuadre}
+            className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-colors"
+          >
+            <FileText size={20} />
+            📥 Descargar Excel Cuadre
+          </button>
+        </div>
+
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-600 border-t-transparent"></div>

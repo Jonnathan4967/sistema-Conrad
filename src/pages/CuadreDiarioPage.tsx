@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Plus, Trash2, X, ChevronDown, ChevronUp, Lock } from 'lucide-react';
+import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Plus, Trash2, X, ChevronDown, ChevronUp, Lock, FileText, Clock, Edit } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { generarCuadreExcel } from '../utils/cuadre-excel-generator';
+import { AutorizacionModal } from '../components/AutorizacionModal';
 
 interface CuadrePorFormaPago {
   forma_pago: string;
   cantidad: number;
   total: number;
+  es_servicio_movil?: boolean;
 }
 
 interface CuadreDiario {
@@ -28,9 +30,50 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     return format(guatemalaTime, 'yyyy-MM-dd');
   };
 
+  const necesitaAutorizacionParaExcel = () => {
+    const ahora = new Date();
+    const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
+    const fechaCuadre = new Date(fecha + 'T00:00:00');
+    
+    const esMismoDia = guatemalaTime.toDateString() === fechaCuadre.toDateString();
+    const hora = guatemalaTime.getHours();
+    const minutos = guatemalaTime.getMinutes();
+    
+    const antesDelLimite = hora < 23 || (hora === 23 && minutos < 59);
+    
+    return !(esMismoDia && antesDelLimite);
+  };
+
+  const debeEstarCerrada = () => {
+    if (cuadreCerrado) return true;
+    
+    const ahora = new Date();
+    const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
+    const fechaCuadre = new Date(fecha + 'T00:00:00');
+    
+    const diaActual = guatemalaTime.toISOString().split('T')[0];
+    if (fecha < diaActual) {
+      return true;
+    }
+    
+    const esMismoDia = guatemalaTime.toDateString() === fechaCuadre.toDateString();
+    if (esMismoDia) {
+      const hora = guatemalaTime.getHours();
+      const minutos = guatemalaTime.getMinutes();
+      if (hora === 23 && minutos >= 59) return true;
+      if (hora >= 24) return true;
+    }
+    
+    return false;
+  };
+
   const [fecha, setFecha] = useState(getFechaGuatemala());
   const [cuadre, setCuadre] = useState<CuadreDiario | null>(null);
   const [loading, setLoading] = useState(false);
+  
+  const [modoEdicion, setModoEdicion] = useState(false);
+  const [mostrarModalToken, setMostrarModalToken] = useState(false);
+  const [mostrarModalTokenExcel, setMostrarModalTokenExcel] = useState(false);
   
   const [billetes, setBilletes] = useState({
     b200: '',
@@ -72,6 +115,33 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const [mostrarAnuladas, setMostrarAnuladas] = useState(false);
   const [consultasAnuladas, setConsultasAnuladas] = useState<any[]>([]);
 
+  const cajaBloqueada = debeEstarCerrada() && !modoEdicion;
+
+  const solicitarEdicion = () => {
+    setMostrarModalToken(true);
+  };
+
+  const ejecutarEdicion = async () => {
+    setModoEdicion(true);
+    setMostrarModalToken(false);
+    setCuadreValidado(false);
+    setMostrarEsperados(false);
+    alert('✅ Modo edición activado. Puede modificar y re-validar el cuadre.');
+  };
+
+  const solicitarDescargaExcel = () => {
+    if (necesitaAutorizacionParaExcel()) {
+      setMostrarModalTokenExcel(true);
+    } else {
+      descargarCuadre('csv');
+    }
+  };
+
+  const ejecutarDescargaExcel = async () => {
+    setMostrarModalTokenExcel(false);
+    await descargarCuadre('csv');
+  };
+
   useEffect(() => {
     cargarCuadre();
     resetearCuadre();
@@ -89,6 +159,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     setPinCierre('');
     setNombreCajero('');
     setCuadreCerrado(false);
+    setModoEdicion(false);
   };
 
   const cargarCuadre = async () => {
@@ -105,7 +176,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       if (errorConsultas) throw errorConsultas;
 
-      // ✅ CAMBIADO: Solo excluir anuladas, INCLUIR móviles
       const consultasRegulares = consultas?.filter(c => 
         c.anulado !== true
       ) || [];
@@ -137,7 +207,12 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       const cuadrePorForma: { [key: string]: CuadrePorFormaPago } = {};
       const consultasAnuladasData = consultas?.filter(c => c.anulado === true) || [];
       
-      consultasRegulares.forEach(consulta => {
+      // ✅ SEPARAR regulares y móviles para el Excel
+      const consultasRegularesOnly = consultasRegulares.filter(c => !c.es_servicio_movil);
+      const consultasMoviles = consultasRegulares.filter(c => c.es_servicio_movil === true);
+
+      // Procesar consultas regulares
+      consultasRegularesOnly.forEach(consulta => {
         const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
         const totalConsulta = detallesConsulta.reduce((sum, d) => sum + d.precio, 0);
         const formaPago = consulta.forma_pago;
@@ -146,12 +221,33 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           cuadrePorForma[formaPago] = {
             forma_pago: formaPago,
             cantidad: 0,
-            total: 0
+            total: 0,
+            es_servicio_movil: false
           };
         }
 
         cuadrePorForma[formaPago].cantidad += 1;
         cuadrePorForma[formaPago].total += totalConsulta;
+      });
+
+      // Procesar consultas móviles (con clave separada para el Excel)
+      consultasMoviles.forEach(consulta => {
+        const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
+        const totalConsulta = detallesConsulta.reduce((sum, d) => sum + d.precio, 0);
+        const formaPago = consulta.forma_pago;
+        const keyMovil = `${formaPago}_movil`;
+
+        if (!cuadrePorForma[keyMovil]) {
+          cuadrePorForma[keyMovil] = {
+            forma_pago: formaPago,
+            cantidad: 0,
+            total: 0,
+            es_servicio_movil: true
+          };
+        }
+
+        cuadrePorForma[keyMovil].cantidad += 1;
+        cuadrePorForma[keyMovil].total += totalConsulta;
       });
 
       const totalVentas = Object.values(cuadrePorForma).reduce((sum, c) => sum + c.total, 0);
@@ -278,10 +374,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         setNombreCajero(data.nombre_cajero || '');
         setPinCierre(data.pin_cierre || '');
         setCuadreCerrado(data.cerrado || false);
-        
-        if (data.cerrado) {
-          alert('ℹ️ Este cuadre ya fue cerrado anteriormente');
-        }
       }
     } catch (error) {
       console.error('Error al cargar cuadre guardado:', error);
@@ -413,23 +505,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       return;
     }
 
-    const efectivoContadoNum = calcularTotalEfectivoContado();
-    const tarjetaContadoNum = parseFloat(tarjetaContado) || 0;
-    const transferenciaContadoNum = parseFloat(transferenciaContado) || 0;
-    const estadoCuentaContadoNum = parseFloat(estadoCuentaContado) || 0;
-
-    const diferencias = {
-      efectivo: efectivoContadoNum - efectivoEsperado,
-      tarjeta: tarjetaContadoNum - tarjetaEsperada,
-      depositado: transferenciaContadoNum - depositadoEsperado,
-      estado_cuenta: estadoCuentaContadoNum - estadoCuentaEsperada
-    };
-
-    const cuadreCorrecto = Math.abs(diferencias.efectivo) < 0.01 && 
-                           Math.abs(diferencias.tarjeta) < 0.01 && 
-                           Math.abs(diferencias.depositado) < 0.01 &&
-                           Math.abs(diferencias.estado_cuenta) < 0.01;
-
     try {
       setCuadreCerrado(true);
       alert('✅ Cierre de caja confirmado exitosamente');
@@ -482,7 +557,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         cuadresPorFormaPago: cuadre?.cuadres_forma_pago.map(c => ({
           forma_pago: getFormaPagoNombre(c.forma_pago),
           cantidad: c.cantidad,
-          total: c.total
+          total: c.total,
+          es_servicio_movil: c.es_servicio_movil || false
         })) || []
       });
     }
@@ -505,11 +581,25 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   };
 
   const totalGastos = gastos.reduce((sum, g) => sum + parseFloat(g.monto || 0), 0);
-  const efectivoEsperado = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo')?.total || 0) - totalGastos;
-  const depositadoEsperado = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo_facturado')?.total || 0) +
-                              (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'transferencia')?.total || 0);
-  const tarjetaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'tarjeta')?.total || 0;
-  const estadoCuentaEsperada = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'estado_cuenta')?.total || 0;
+  
+  // ✅ SUMAR regulares + móviles para cada forma de pago
+  const efectivoRegular = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo' && !c.es_servicio_movil)?.total || 0;
+  const efectivoMovil = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo' && c.es_servicio_movil)?.total || 0;
+  const efectivoEsperado = (efectivoRegular + efectivoMovil) - totalGastos;
+
+  const tarjetaRegular = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'tarjeta' && !c.es_servicio_movil)?.total || 0;
+  const tarjetaMovil = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'tarjeta' && c.es_servicio_movil)?.total || 0;
+  const tarjetaEsperada = tarjetaRegular + tarjetaMovil;
+
+  const depositoRegular = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo_facturado' && !c.es_servicio_movil)?.total || 0) +
+                          (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'transferencia' && !c.es_servicio_movil)?.total || 0);
+  const depositoMovil = (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo_facturado' && c.es_servicio_movil)?.total || 0) +
+                        (cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'transferencia' && c.es_servicio_movil)?.total || 0);
+  const depositadoEsperado = depositoRegular + depositoMovil;
+
+  const estadoCtaRegular = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'estado_cuenta' && !c.es_servicio_movil)?.total || 0;
+  const estadoCtaMovil = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'estado_cuenta' && c.es_servicio_movil)?.total || 0;
+  const estadoCuentaEsperada = estadoCtaRegular + estadoCtaMovil;
 
   const efectivoContadoNum = calcularTotalEfectivoContado();
   const depositadoContadoNum = parseFloat(transferenciaContado) || 0;
@@ -574,15 +664,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                 disabled={cuadreCerrado}
               />
             </div>
-            {!cuadreCerrado && (
-              <button
-                onClick={() => setMostrarCuadre(!mostrarCuadre)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors"
-              >
-                <DollarSign size={18} />
-                {mostrarCuadre ? 'Ocultar' : 'Cuadrar Caja'}
-              </button>
-            )}
+            <button
+              onClick={() => setMostrarCuadre(!mostrarCuadre)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors"
+            >
+              <DollarSign size={18} />
+              {mostrarCuadre ? 'Ocultar Cuadre' : 'Ver Cuadre del Día'}
+            </button>
             {cuadreCerrado && (
               <div className="bg-green-100 text-green-700 px-4 py-2 rounded-lg font-medium flex items-center gap-2">
                 <CheckCircle2 size={18} />
@@ -599,16 +687,47 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           </div>
         ) : (
           <>
-            {mostrarCuadre && cuadre && cuadre.total_consultas > 0 && !cuadreCerrado && (
+            {mostrarCuadre && cuadre && cuadre.total_consultas > 0 && (
               <div className="bg-white rounded-lg shadow-lg p-6 mb-6 border-2 border-blue-500">
                 <div className="flex items-center gap-3 mb-6 pb-4 border-b">
                   <div className="bg-blue-100 p-3 rounded-lg">
                     <DollarSign size={28} className="text-blue-700" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <h3 className="text-2xl font-bold text-gray-900">Cierre de Caja</h3>
-                    <p className="text-sm text-gray-600 mt-1">Cuenta el dinero físicamente e ingresa las cantidades</p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {cajaBloqueada ? 'Cuadre bloqueado - Solo lectura' : 'Cuenta el dinero físicamente e ingresa las cantidades'}
+                    </p>
                   </div>
+                  
+                  {cajaBloqueada && (
+                    <div className="flex items-center gap-3">
+                      {modoEdicion ? (
+                        <div className="bg-yellow-100 border-2 border-yellow-500 px-4 py-2 rounded-lg">
+                          <p className="text-yellow-800 font-bold flex items-center gap-2">
+                            <Edit size={18} />
+                            Modo Edición Activo
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="bg-red-100 border-2 border-red-500 px-4 py-2 rounded-lg">
+                            <p className="text-red-800 font-bold flex items-center gap-2">
+                              <Lock size={18} />
+                              Caja Cerrada
+                            </p>
+                          </div>
+                          <button
+                            onClick={solicitarEdicion}
+                            className="bg-orange-600 hover:bg-orange-700 text-white px-5 py-2.5 rounded-lg font-semibold flex items-center gap-2 transition-colors shadow-md hover:shadow-lg"
+                          >
+                            <Edit size={18} />
+                            Editar Cuadre
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mb-8">
@@ -633,9 +752,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <input
                             type="number"
                             min="0"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                              cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
+                            }`}
                             value={billetes[billete.key as keyof typeof billetes]}
                             onChange={(e) => setBilletes({ ...billetes, [billete.key]: e.target.value })}
+                            disabled={cajaBloqueada}
+                            onWheel={(e) => e.currentTarget.blur()}
                             placeholder="0"
                           />
                           {billetes[billete.key as keyof typeof billetes] && (
@@ -664,9 +787,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <input
                             type="number"
                             min="0"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className={`w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                              cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
+                            }`}
                             value={monedas[moneda.key as keyof typeof monedas]}
                             onChange={(e) => setMonedas({ ...monedas, [moneda.key]: e.target.value })}
+                            disabled={cajaBloqueada}
+                            onWheel={(e) => e.currentTarget.blur()}
                             placeholder="0"
                           />
                           {monedas[moneda.key as keyof typeof monedas] && (
@@ -697,9 +824,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     <input
                       type="number"
                       step="0.01"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      className={`w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                        cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
+                      }`}
                       value={tarjetaContado}
                       onChange={(e) => setTarjetaContado(e.target.value)}
+                      disabled={cajaBloqueada}
+                      onWheel={(e) => e.currentTarget.blur()}
                       placeholder="0.00"
                     />
                     <p className="text-xs text-gray-600 mt-2 text-center">Suma total de vouchers</p>
@@ -712,9 +843,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     <input
                       type="number"
                       step="0.01"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      className={`w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                        cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
+                      }`}
                       value={transferenciaContado}
                       onChange={(e) => setTransferenciaContado(e.target.value)}
+                      disabled={cajaBloqueada}
+                      onWheel={(e) => e.currentTarget.blur()}
                       placeholder="0.00"
                     />
                     <p className="text-xs text-gray-600 mt-2 text-center">Suma de comprobantes</p>
@@ -727,9 +862,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                     <input
                       type="number"
                       step="0.01"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      className={`w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                        cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
+                      }`}
                       value={estadoCuentaContado}
                       onChange={(e) => setEstadoCuentaContado(e.target.value)}
+                      disabled={cajaBloqueada}
+                      onWheel={(e) => e.currentTarget.blur()}
                       placeholder="0.00"
                     />
                     <p className="text-xs text-gray-600 mt-2 text-center">Pagos a cuenta o crédito</p>
@@ -739,29 +878,103 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Observaciones del Cierre</label>
                   <textarea
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                      cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
                     value={observaciones}
                     onChange={(e) => setObservaciones(e.target.value)}
+                    disabled={cajaBloqueada}
                     placeholder="Notas, incidencias o comentarios sobre el cierre..."
                     rows={3}
                   />
                 </div>
 
-                <button
-                  onClick={guardarCuadre}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-4"
-                >
-                  💾 Guardar Cuadre
-                </button>
+                {!cajaBloqueada && (
+                  <>
+                    <button
+                      onClick={guardarCuadre}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-4"
+                    >
+                      💾 Guardar Cuadre
+                    </button>
 
-                {!cuadreValidado && (
-                  <button
-                    onClick={validarCuadre}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6"
-                  >
-                    <CheckCircle2 size={24} />
-                    Validar Cuadre
-                  </button>
+                    <button
+                      onClick={validarCuadre}
+                      disabled={cuadreValidado}
+                      className={`w-full px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6 ${
+                        cuadreValidado 
+                          ? 'bg-gray-400 cursor-not-allowed text-white' 
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                    >
+                      <CheckCircle2 size={24} />
+                      {cuadreValidado ? '✓ Cuadre Validado' : 'Validar Cuadre'}
+                    </button>
+
+                    {cuadreValidado && !cuadreCerrado && (
+                      <button
+                        onClick={solicitarDescargaExcel}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6"
+                      >
+                        <FileText size={24} />
+                        📥 Descargar Excel del Cuadre
+                        {necesitaAutorizacionParaExcel() && (
+                          <span className="ml-2 text-xs bg-orange-500 px-2 py-1 rounded">
+                            Requiere autorización
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {cajaBloqueada && modoEdicion && (
+                  <>
+                    <button
+                      onClick={guardarCuadre}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-4"
+                    >
+                      💾 Guardar Cambios
+                    </button>
+
+                    <button
+                      onClick={validarCuadre}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6"
+                    >
+                      <CheckCircle2 size={24} />
+                      Re-Validar Cuadre
+                    </button>
+
+                    {cuadreValidado && (
+                      <button
+                        onClick={solicitarDescargaExcel}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6"
+                      >
+                        <FileText size={24} />
+                        📥 Descargar Excel del Cuadre
+                        {necesitaAutorizacionParaExcel() && (
+                          <span className="ml-2 text-xs bg-orange-500 px-2 py-1 rounded">
+                            Requiere autorización
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {cajaBloqueada && !modoEdicion && (
+                  <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-5 text-center">
+                    <div className="flex items-center justify-center gap-2 mb-3">
+                      <Lock className="text-blue-600" size={28} />
+                      <p className="text-blue-800 font-bold text-lg">Cuadre Bloqueado</p>
+                    </div>
+                    <p className="text-sm text-blue-700 mb-2">
+                      Este cuadre corresponde a un día pasado y está en modo solo lectura
+                    </p>
+                    <p className="text-xs text-blue-600">
+                      Haga clic en el botón "Editar Cuadre" arriba para modificarlo (requiere autorización)
+                    </p>
+                  </div>
                 )}
 
                 {cuadreValidado && mostrarEsperados && (
@@ -774,7 +987,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <div className="space-y-3">
                             <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
                               <div className="flex justify-between items-center mb-2">
-                                <span className="font-semibold text-gray-900">💵 Efectivo</span>
+                                <span className="font-semibold text-gray-900">💵 Efectivo (Incluye móviles)</span>
                                 <span className="text-green-700 font-bold">✓ Correcto</span>
                               </div>
                               <div className="grid grid-cols-3 gap-2 text-sm">
@@ -797,7 +1010,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
                             <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
                               <div className="flex justify-between items-center mb-2">
-                                <span className="font-semibold text-gray-900">💳 Tarjeta</span>
+                                <span className="font-semibold text-gray-900">💳 Tarjeta (Incluye móviles)</span>
                                 <span className="text-green-700 font-bold">✓ Correcto</span>
                               </div>
                               <div className="grid grid-cols-3 gap-2 text-sm">
@@ -820,7 +1033,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
                             <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
                               <div className="flex justify-between items-center mb-2">
-                                <span className="font-semibold text-gray-900">🏦 Transferencias</span>
+                                <span className="font-semibold text-gray-900">🏦 Transferencias (Incluye móviles)</span>
                                 <span className="text-green-700 font-bold">✓ Correcto</span>
                               </div>
                               <div className="grid grid-cols-3 gap-2 text-sm">
@@ -844,7 +1057,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                             {estadoCuentaEsperada > 0 && (
                               <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
                                 <div className="flex justify-between items-center mb-2">
-                                  <span className="font-semibold text-gray-900">📋 Estado de Cuenta</span>
+                                  <span className="font-semibold text-gray-900">📋 Estado de Cuenta (Incluye móviles)</span>
                                   <span className="text-green-700 font-bold">✓ Correcto</span>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 text-sm">
@@ -983,7 +1196,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   )}
                   {mostrarGastos ? <ChevronUp size={16} className="text-gray-400 ml-1" /> : <ChevronDown size={16} className="text-gray-400 ml-1" />}
                 </button>
-                {!cuadreCerrado && (
+                {!cuadreCerrado && !cajaBloqueada && (
                   <button
                     onClick={() => setShowModalGasto(true)}
                     className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
@@ -1021,7 +1234,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <div className="text-lg font-bold text-red-600">
                             - Q {gasto.monto.toFixed(2)}
                           </div>
-                          {!cuadreCerrado && (
+                          {!cuadreCerrado && !cajaBloqueada && (
                             <button
                               onClick={() => eliminarGasto(gasto.id)}
                               className="text-red-600 hover:bg-red-100 p-2 rounded transition-colors"
@@ -1117,11 +1330,12 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Monto (Q) *</label>
                 <input
                   type="number"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="0.00"
                   step="0.01"
                   value={montoGasto}
                   onChange={(e) => setMontoGasto(e.target.value)}
+                  onWheel={(e) => e.currentTarget.blur()}
                 />
               </div>
             </div>
@@ -1146,6 +1360,24 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
             </div>
           </div>
         </div>
+      )}
+
+      {mostrarModalToken && (
+        <AutorizacionModal
+          accion="Editar Cuadre Cerrado"
+          detalles={`Cuadre del ${format(new Date(fecha + 'T12:00:00'), 'dd/MM/yyyy')} - Bloqueado automáticamente`}
+          onAutorizado={ejecutarEdicion}
+          onCancelar={() => setMostrarModalToken(false)}
+        />
+      )}
+
+      {mostrarModalTokenExcel && (
+        <AutorizacionModal
+          accion="Descargar Excel de Cuadre"
+          detalles={`Cuadre del ${format(new Date(fecha + 'T12:00:00'), 'dd/MM/yyyy')} - Requiere autorización administrativa`}
+          onAutorizado={ejecutarDescargaExcel}
+          onCancelar={() => setMostrarModalTokenExcel(false)}
+        />
       )}
     </div>
   );
