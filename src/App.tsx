@@ -21,6 +21,7 @@ import { InventarioHomePage } from './pages/InventarioHomePage';
 import { ProductosInventarioPage } from './pages/ProductosInventarioPage';
 import { MovimientosPage } from './pages/MovimientosPage';
 import { ProveedoresPage } from './pages/ProveedoresPage';
+import { InventarioReportesPage } from './pages/InventarioReportesPage';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -136,7 +137,7 @@ function App() {
         case 'proveedores':
           return <ProveedoresPage onBack={() => setCurrentPage('home')} />;
         case 'reportes':
-          return <InventarioHomePage onNavigate={setCurrentPage} />; // TODO: Crear ReportesPage
+          return <InventarioReportesPage onBack={() => setCurrentPage('home')} />;
         default:
           return <InventarioHomePage onNavigate={setCurrentPage} />;
       }
