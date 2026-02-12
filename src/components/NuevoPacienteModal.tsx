@@ -8,7 +8,8 @@ import { supabase } from '../lib/supabase';
 interface NuevoPacienteModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (paciente: Paciente, medico: Medico | null, sinInfoMedico: boolean, esServicioMovil: boolean) => void;
+  // ✅ MODIFICADO: Se agrega 5.º parámetro "establecimiento"
+  onSave: (paciente: Paciente, medico: Medico | null, sinInfoMedico: boolean, esServicioMovil: boolean, establecimiento: string) => void;
 }
 
 export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
@@ -30,12 +31,15 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
   // Estado del médico
   const [esReferente, setEsReferente] = useState(true);
   const [sinInformacion, setSinInformacion] = useState(false);
-  const [esServicioMovil, setEsServicioMovil] = useState(false); // NUEVO
+  const [esServicioMovil, setEsServicioMovil] = useState(false);
   const [nombreMedico, setNombreMedico] = useState('');
   const [telefonoMedico, setTelefonoMedico] = useState('');
   const [departamentoMedico, setDepartamentoMedico] = useState('');
   const [municipioMedico, setMunicipioMedico] = useState('');
   const [direccionMedico, setDireccionMedico] = useState('');
+
+  // ✅ NUEVO: Estado para el establecimiento del Servicio Móvil
+  const [establecimientoMovil, setEstablecimientoMovil] = useState('');
 
   // Lista de médicos referentes
   const [medicosReferentes, setMedicosReferentes] = useState<Medico[]>([]);
@@ -116,19 +120,25 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
     setMunicipioMedico('');
     setDireccionMedico('');
     setMedicoSeleccionado(null);
+    setEstablecimientoMovil(''); // ✅ NUEVO: limpiar establecimiento
   };
 
   // Guardar
   const handleGuardar = () => {
-    // Validar datos del paciente (con trim para eliminar espacios)
+    // Validar datos del paciente
     if (!primerNombre.trim() || !primerApellido.trim() || !edadPaciente || !telefonoPaciente.trim() || !departamentoPaciente || !municipioPaciente) {
       alert('Por favor complete todos los campos obligatorios del paciente:\n- Primer Nombre\n- Primer Apellido\n- Edad\n- Teléfono\n- Departamento\n- Municipio');
       return;
     }
 
-    // Si tiene nombre de médico, exigir que complete datos o marque "sin información"
+    // ✅ NUEVO: Validar establecimiento si es Servicio Móvil
+    if (esServicioMovil && !establecimientoMovil.trim()) {
+      alert('El nombre del establecimiento es requerido para Servicios Móviles.');
+      return;
+    }
+
     const tieneMedico = nombreMedico.trim() !== '';
-    
+
     if (tieneMedico && !sinInformacion) {
       if (!telefonoMedico.trim() || !departamentoMedico || !municipioMedico || !direccionMedico.trim()) {
         alert('Por favor complete todos los campos del médico o marque "Sin información"');
@@ -136,7 +146,7 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
       }
     }
 
-    // Convertir edad a años para consistencia en BD
+    // Convertir edad a años para BD
     let edadEnAnios = parseInt(edadPaciente);
     if (tipoEdad === 'meses') {
       edadEnAnios = Math.floor(edadEnAnios / 12);
@@ -159,16 +169,15 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
       primer_apellido: primerApellido.trim(),
       segundo_apellido: segundoApellido.trim() || undefined,
       edad: edadEnAnios || 0,
-      edad_valor: parseInt(edadPaciente), // Valor original
-      edad_tipo: tipoEdad, // días, meses, años
+      edad_valor: parseInt(edadPaciente),
+      edad_tipo: tipoEdad,
       telefono: telefonoPaciente,
       departamento: departamentoPaciente,
       municipio: municipioPaciente
     };
 
     let medico: Medico | null = null;
-    
-    // Si tiene nombre de médico (independiente de si es "referente" o no)
+
     if (tieneMedico && !sinInformacion) {
       if (esReferente && medicoSeleccionado) {
         medico = medicoSeleccionado;
@@ -179,15 +188,15 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
           departamento: departamentoMedico,
           municipio: municipioMedico,
           direccion: direccionMedico,
-          es_referente: esReferente // Guardar como referente solo si checkbox está marcado
+          es_referente: esReferente
         };
       }
     }
 
-    // IMPORTANTE: Si tiene nombre de médico, siempre mostrar en impresión
     const sinInfoParaImprimir = !tieneMedico || sinInformacion;
-    
-    onSave(paciente, medico, sinInfoParaImprimir, esServicioMovil);
+
+    // ✅ MODIFICADO: Pasar establecimiento como 5.º parámetro
+    onSave(paciente, medico, sinInfoParaImprimir, esServicioMovil, establecimientoMovil.trim());
     resetForm();
   };
 
@@ -216,9 +225,8 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
           {/* Sección Paciente */}
           <div className="card">
             <h3 className="text-xl font-semibold mb-4 text-blue-700">Datos del Paciente</h3>
-            
+
             <div className="space-y-4">
-              {/* Primer Nombre */}
               <div>
                 <label className="label">Primer Nombre <span className="text-red-500">*</span></label>
                 <input
@@ -231,7 +239,6 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
                 />
               </div>
 
-              {/* Segundo Nombre */}
               <div>
                 <label className="label">Segundo Nombre (opcional)</label>
                 <input
@@ -243,7 +250,6 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
                 />
               </div>
 
-              {/* Primer Apellido */}
               <div>
                 <label className="label">Primer Apellido <span className="text-red-500">*</span></label>
                 <input
@@ -255,7 +261,6 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
                 />
               </div>
 
-              {/* Segundo Apellido */}
               <div>
                 <label className="label">Segundo Apellido (opcional)</label>
                 <input
@@ -269,8 +274,6 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
 
               <div>
                 <label className="label">Edad <span className="text-red-500">*</span></label>
-                
-                {/* Botones selector tipo edad */}
                 <div className="flex gap-2 mb-2">
                   <button
                     type="button"
@@ -294,7 +297,6 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
                     Años
                   </button>
                 </div>
-
                 <input
                   type="number"
                   className="input-field"
@@ -345,7 +347,7 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
           {/* Sección Médico */}
           <div className="card">
             <h3 className="text-xl font-semibold mb-4 text-green-700">Datos del Médico</h3>
-            
+
             <div className="space-y-4">
               <div className="flex gap-4 flex-wrap">
                 <label className="flex items-center">
@@ -355,6 +357,7 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
                     onChange={() => {
                       setEsReferente(true);
                       setEsServicioMovil(false);
+                      setEstablecimientoMovil('');
                       setNombreMedico('');
                       setTelefonoMedico('');
                       setDepartamentoMedico('');
@@ -373,6 +376,7 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
                     onChange={() => {
                       setEsReferente(false);
                       setEsServicioMovil(false);
+                      setEstablecimientoMovil('');
                       setMedicoSeleccionado(null);
                       setNombreMedico('');
                       setTelefonoMedico('');
@@ -419,12 +423,32 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
                 </label>
               </div>
 
-              {/* Mostrar nota informativa para servicios móviles */}
+              {/* ✅ SERVICIO MÓVIL: nota + campo establecimiento */}
               {esServicioMovil && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                  <p className="text-sm text-purple-800">
-                    <strong>📱 Servicio Móvil:</strong> Este registro no cuenta como paciente regular ni genera comisión. Solo se registran estudios RX con precio personalizado.
-                  </p>
+                <div className="space-y-3">
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                    <p className="text-sm text-purple-800">
+                      <strong>📱 Servicio Móvil:</strong> Este registro no cuenta como paciente regular ni genera comisión. Solo se registran estudios RX con precio personalizado.
+                    </p>
+                  </div>
+
+                  {/* ✅ NUEVO: Campo Establecimiento */}
+                  <div>
+                    <label className="label">
+                      🏥 Establecimiento / Lugar <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field border-orange-300 focus:ring-orange-400 focus:border-orange-400"
+                      value={establecimientoMovil}
+                      onChange={(e) => setEstablecimientoMovil(e.target.value)}
+                      placeholder="Ej: Hospital San Juan de Dios, Clínica Santa María"
+                      autoFocus
+                    />
+                    <p className="text-xs text-orange-600 mt-1">
+                      * Nombre del lugar donde se realizará el servicio móvil
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -446,69 +470,69 @@ export const NuevoPacienteModal: React.FC<NuevoPacienteModalProps> = ({
                       <label className="label">
                         Nombre {!sinInformacion && <span className="text-red-500">*</span>}
                       </label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    value={nombreMedico}
-                    onChange={(e) => setNombreMedico(e.target.value)}
-                    placeholder="Nombre del médico"
-                    disabled={sinInformacion}
+                      <input
+                        type="text"
+                        className="input-field"
+                        value={nombreMedico}
+                        onChange={(e) => setNombreMedico(e.target.value)}
+                        placeholder="Nombre del médico"
+                        disabled={sinInformacion}
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="label">
+                      Número de Teléfono {!sinInformacion && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="tel"
+                      className="input-field"
+                      value={telefonoMedico}
+                      onChange={(e) => setTelefonoMedico(e.target.value.replace(/\D/g, ''))}
+                      placeholder="12345678"
+                      disabled={sinInformacion || (esReferente && medicoSeleccionado !== null)}
+                      maxLength={8}
+                    />
+                  </div>
+
+                  <Autocomplete
+                    label="Departamento"
+                    options={departamentosGuatemala}
+                    value={departamentoMedico}
+                    onChange={(val) => {
+                      setDepartamentoMedico(val);
+                      setMunicipioMedico('');
+                    }}
+                    placeholder="Seleccione departamento"
+                    disabled={sinInformacion || (esReferente && medicoSeleccionado !== null)}
+                    required={!sinInformacion}
                   />
-                </div>
-              )}
 
-              <div>
-                <label className="label">
-                  Número de Teléfono {!sinInformacion && <span className="text-red-500">*</span>}
-                </label>
-                <input
-                  type="tel"
-                  className="input-field"
-                  value={telefonoMedico}
-                  onChange={(e) => setTelefonoMedico(e.target.value.replace(/\D/g, ''))}
-                  placeholder="12345678"
-                  disabled={sinInformacion || (esReferente && medicoSeleccionado !== null)}
-                  maxLength={8}
-                />
-              </div>
+                  <Autocomplete
+                    label="Municipio"
+                    options={municipiosMedicoFiltrados}
+                    value={municipioMedico}
+                    onChange={setMunicipioMedico}
+                    placeholder="Seleccione municipio"
+                    disabled={sinInformacion || !departamentoMedico || (esReferente && medicoSeleccionado !== null)}
+                    required={!sinInformacion}
+                  />
 
-              <Autocomplete
-                label="Departamento"
-                options={departamentosGuatemala}
-                value={departamentoMedico}
-                onChange={(val) => {
-                  setDepartamentoMedico(val);
-                  setMunicipioMedico('');
-                }}
-                placeholder="Seleccione departamento"
-                disabled={sinInformacion || (esReferente && medicoSeleccionado !== null)}
-                required={!sinInformacion}
-              />
-
-              <Autocomplete
-                label="Municipio"
-                options={municipiosMedicoFiltrados}
-                value={municipioMedico}
-                onChange={setMunicipioMedico}
-                placeholder="Seleccione municipio"
-                disabled={sinInformacion || !departamentoMedico || (esReferente && medicoSeleccionado !== null)}
-                required={!sinInformacion}
-              />
-
-              <div>
-                <label className="label">
-                  Dirección {!sinInformacion && <span className="text-red-500">*</span>}
-                </label>
-                <textarea
-                  className="input-field"
-                  value={direccionMedico}
-                  onChange={(e) => setDireccionMedico(e.target.value)}
-                  placeholder="Dirección completa"
-                  disabled={sinInformacion || (esReferente && medicoSeleccionado !== null)}
-                  rows={3}
-                />
-              </div>
-              </>
+                  <div>
+                    <label className="label">
+                      Dirección {!sinInformacion && <span className="text-red-500">*</span>}
+                    </label>
+                    <textarea
+                      className="input-field"
+                      value={direccionMedico}
+                      onChange={(e) => setDireccionMedico(e.target.value)}
+                      placeholder="Dirección completa"
+                      disabled={sinInformacion || (esReferente && medicoSeleccionado !== null)}
+                      rows={3}
+                    />
+                  </div>
+                </>
               )}
             </div>
           </div>

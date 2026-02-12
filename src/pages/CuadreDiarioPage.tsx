@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Calendar, DollarSign, CheckCircle2, Plus, Trash2, X, ChevronDown, ChevronUp, Lock, FileText, Clock, Edit } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { generarCuadreExcel } from '../utils/cuadre-excel-generator';
 import { AutorizacionModal } from '../components/AutorizacionModal';
 
@@ -30,51 +30,55 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     return format(guatemalaTime, 'yyyy-MM-dd');
   };
 
+  // ✅ CORREGIDO: La caja se cierra a la 1:00 AM (no a medianoche)
+  // Entre las 00:00 y 00:59 todavía pertenece al día ANTERIOR, así que
+  // la "fecha operativa" es ayer si la hora actual es < 1:00 AM.
+  const getFechaOperativaGuatemala = () => {
+    const ahora = new Date();
+    const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
+    const hora = guatemalaTime.getHours();
+
+    // Si es antes de la 1:00 AM, operativamente seguimos en el día anterior
+    if (hora < 1) {
+      const ayer = new Date(guatemalaTime);
+      ayer.setDate(ayer.getDate() - 1);
+      return format(ayer, 'yyyy-MM-dd');
+    }
+
+    return format(guatemalaTime, 'yyyy-MM-dd');
+  };
+
   const necesitaAutorizacionParaExcel = () => {
     const ahora = new Date();
     const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
-    const fechaCuadre = new Date(fecha + 'T00:00:00');
-    
-    const esMismoDia = guatemalaTime.toDateString() === fechaCuadre.toDateString();
-    const hora = guatemalaTime.getHours();
-    const minutos = guatemalaTime.getMinutes();
-    
-    const antesDelLimite = hora < 23 || (hora === 23 && minutos < 59);
-    
-    return !(esMismoDia && antesDelLimite);
+    const fechaOperativa = getFechaOperativaGuatemala();
+
+    // No necesita autorización si estamos viendo el día operativo actual
+    return fecha !== fechaOperativa;
   };
 
+  // ✅ CORREGIDO: Cierre a la 1:00 AM usando fecha operativa
   const debeEstarCerrada = () => {
     if (cuadreCerrado) return true;
-    
-    const ahora = new Date();
-    const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
-    const fechaCuadre = new Date(fecha + 'T00:00:00');
-    
-    const diaActual = guatemalaTime.toISOString().split('T')[0];
-    if (fecha < diaActual) {
+
+    const fechaOperativa = getFechaOperativaGuatemala();
+
+    // Si la fecha del cuadre es anterior al día operativo actual → bloqueada
+    if (fecha < fechaOperativa) {
       return true;
     }
-    
-    const esMismoDia = guatemalaTime.toDateString() === fechaCuadre.toDateString();
-    if (esMismoDia) {
-      const hora = guatemalaTime.getHours();
-      const minutos = guatemalaTime.getMinutes();
-      if (hora === 23 && minutos >= 59) return true;
-      if (hora >= 24) return true;
-    }
-    
+
     return false;
   };
 
-  const [fecha, setFecha] = useState(getFechaGuatemala());
+  const [fecha, setFecha] = useState(getFechaOperativaGuatemala()); // ✅ Usar fecha operativa al iniciar
   const [cuadre, setCuadre] = useState<CuadreDiario | null>(null);
   const [loading, setLoading] = useState(false);
-  
+
   const [modoEdicion, setModoEdicion] = useState(false);
   const [mostrarModalToken, setMostrarModalToken] = useState(false);
   const [mostrarModalTokenExcel, setMostrarModalTokenExcel] = useState(false);
-  
+
   const [billetes, setBilletes] = useState({
     b200: '',
     b100: '',
@@ -99,13 +103,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const [estadoCuentaContado, setEstadoCuentaContado] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [mostrarCuadre, setMostrarCuadre] = useState(false);
-  
+
   const [cuadreValidado, setCuadreValidado] = useState(false);
   const [mostrarEsperados, setMostrarEsperados] = useState(false);
   const [pinCierre, setPinCierre] = useState('');
   const [nombreCajero, setNombreCajero] = useState('');
   const [cuadreCerrado, setCuadreCerrado] = useState(false);
-  
+
   const [gastos, setGastos] = useState<any[]>([]);
   const [showModalGasto, setShowModalGasto] = useState(false);
   const [conceptoGasto, setConceptoGasto] = useState('');
@@ -176,12 +180,9 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       if (errorConsultas) throw errorConsultas;
 
-      const consultasRegulares = consultas?.filter(c => 
-        c.anulado !== true
-      ) || [];
-
+      const consultasRegulares = consultas?.filter(c => c.anulado !== true) || [];
       const consultasIds = consultas?.map(c => c.id) || [];
-      
+
       if (consultasIds.length === 0) {
         setCuadre({
           fecha,
@@ -196,41 +197,29 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
       const { data: detallesData, error: errorDetalles } = await supabase
         .from('detalle_consultas')
-        .select(`
-          *,
-          sub_estudios(nombre)
-        `)
+        .select(`*, sub_estudios(nombre)`)
         .in('consulta_id', consultasIds);
 
       if (errorDetalles) throw errorDetalles;
 
       const cuadrePorForma: { [key: string]: CuadrePorFormaPago } = {};
       const consultasAnuladasData = consultas?.filter(c => c.anulado === true) || [];
-      
-      // ✅ SEPARAR regulares y móviles para el Excel
+
       const consultasRegularesOnly = consultasRegulares.filter(c => !c.es_servicio_movil);
       const consultasMoviles = consultasRegulares.filter(c => c.es_servicio_movil === true);
 
-      // Procesar consultas regulares
       consultasRegularesOnly.forEach(consulta => {
         const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
         const totalConsulta = detallesConsulta.reduce((sum, d) => sum + d.precio, 0);
         const formaPago = consulta.forma_pago;
 
         if (!cuadrePorForma[formaPago]) {
-          cuadrePorForma[formaPago] = {
-            forma_pago: formaPago,
-            cantidad: 0,
-            total: 0,
-            es_servicio_movil: false
-          };
+          cuadrePorForma[formaPago] = { forma_pago: formaPago, cantidad: 0, total: 0, es_servicio_movil: false };
         }
-
         cuadrePorForma[formaPago].cantidad += 1;
         cuadrePorForma[formaPago].total += totalConsulta;
       });
 
-      // Procesar consultas móviles (con clave separada para el Excel)
       consultasMoviles.forEach(consulta => {
         const detallesConsulta = detallesData?.filter(d => d.consulta_id === consulta.id) || [];
         const totalConsulta = detallesConsulta.reduce((sum, d) => sum + d.precio, 0);
@@ -238,14 +227,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         const keyMovil = `${formaPago}_movil`;
 
         if (!cuadrePorForma[keyMovil]) {
-          cuadrePorForma[keyMovil] = {
-            forma_pago: formaPago,
-            cantidad: 0,
-            total: 0,
-            es_servicio_movil: true
-          };
+          cuadrePorForma[keyMovil] = { forma_pago: formaPago, cantidad: 0, total: 0, es_servicio_movil: true };
         }
-
         cuadrePorForma[keyMovil].cantidad += 1;
         cuadrePorForma[keyMovil].total += totalConsulta;
       });
@@ -266,10 +249,10 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         motivo_anulacion: c.motivo_anulacion,
         total: detallesData?.filter(d => d.consulta_id === c.id).reduce((sum, d) => sum + d.precio, 0) || 0
       })));
-      
+
       cargarGastos();
       await cargarCuadreGuardado();
-      
+
     } catch (error) {
       console.error('Error al cargar cuadre:', error);
       alert('Error al cargar el cuadre diario');
@@ -281,13 +264,10 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     try {
       const { data, error } = await supabase
         .from('gastos')
-        .select(`
-          *,
-          categorias_gastos(nombre)
-        `)
+        .select(`*, categorias_gastos(nombre)`)
         .eq('fecha', fecha)
-        .order('created_at', { ascending: false});
-      
+        .order('created_at', { ascending: false });
+
       if (error) throw error;
       setGastos(data || []);
     } catch (error) {
@@ -327,7 +307,6 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         .upsert(cuadreData, { onConflict: 'fecha' });
 
       if (error) throw error;
-      
       alert('✅ Cuadre guardado correctamente');
     } catch (error) {
       console.error('Error al guardar cuadre:', error);
@@ -343,10 +322,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         .eq('fecha', fecha)
         .maybeSingle();
 
-      if (error) {
-        console.error('Error al cargar cuadre guardado:', error);
-        return;
-      }
+      if (error) { console.error('Error al cargar cuadre guardado:', error); return; }
 
       if (data) {
         setBilletes({
@@ -413,9 +389,9 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
           monto: parseFloat(montoGasto),
           forma_pago: 'efectivo'
         }]);
-      
+
       if (error) throw error;
-      
+
       setConceptoGasto('');
       setMontoGasto('');
       setShowModalGasto(false);
@@ -429,13 +405,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
   const eliminarGasto = async (id: string) => {
     if (!confirm('¿Eliminar este gasto?')) return;
-    
     try {
-      const { error } = await supabase
-        .from('gastos')
-        .delete()
-        .eq('id', id);
-      
+      const { error } = await supabase.from('gastos').delete().eq('id', id);
       if (error) throw error;
       cargarGastos();
       alert('Gasto eliminado');
@@ -446,7 +417,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   };
 
   const calcularTotalEfectivoContado = () => {
-    const totalBilletes = 
+    const totalBilletes =
       (parseFloat(billetes.b200) || 0) * 200 +
       (parseFloat(billetes.b100) || 0) * 100 +
       (parseFloat(billetes.b50) || 0) * 50 +
@@ -455,7 +426,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       (parseFloat(billetes.b5) || 0) * 5 +
       (parseFloat(billetes.b1) || 0) * 1;
 
-    const totalMonedas = 
+    const totalMonedas =
       (parseFloat(monedas.m1) || 0) * 1 +
       (parseFloat(monedas.m050) || 0) * 0.50 +
       (parseFloat(monedas.m025) || 0) * 0.25 +
@@ -480,12 +451,11 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     setMostrarEsperados(true);
     setCuadreValidado(true);
 
-    const diferenciaEfec = Math.abs(efectivoContadoNum - efectivoEsperado);
-    const diferenciaTarj = Math.abs(tarjetaContadoNum - tarjetaEsperada);
-    const diferenciaTrans = Math.abs(transferenciaContadoNum - depositadoEsperado);
-    const diferenciaEstadoCta = Math.abs(estadoCuentaContadoNum - estadoCuentaEsperada);
-
-    const cuadra = diferenciaEfec < 0.01 && diferenciaTarj < 0.01 && diferenciaTrans < 0.01 && diferenciaEstadoCta < 0.01;
+    const cuadra =
+      Math.abs(efectivoContadoNum - efectivoEsperado) < 0.01 &&
+      Math.abs(tarjetaContadoNum - tarjetaEsperada) < 0.01 &&
+      Math.abs(transferenciaContadoNum - depositadoEsperado) < 0.01 &&
+      Math.abs(estadoCuentaContadoNum - estadoCuentaEsperada) < 0.01;
 
     if (!cuadra) {
       alert('⚠️ El cuadre NO coincide.');
@@ -495,22 +465,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   };
 
   const confirmarCierre = async () => {
-    if (!nombreCajero.trim()) {
-      alert('⚠️ Debe ingresar el nombre del cajero');
-      return;
-    }
-
-    if (!pinCierre.trim()) {
-      alert('⚠️ Debe ingresar el PIN de autorización');
-      return;
-    }
+    if (!nombreCajero.trim()) { alert('⚠️ Debe ingresar el nombre del cajero'); return; }
+    if (!pinCierre.trim()) { alert('⚠️ Debe ingresar el PIN de autorización'); return; }
 
     try {
       setCuadreCerrado(true);
       alert('✅ Cierre de caja confirmado exitosamente');
-      
       await descargarCuadre('csv');
-      
     } catch (error) {
       console.error('Error al confirmar cierre:', error);
       alert('❌ Error al confirmar el cierre de caja');
@@ -530,10 +491,11 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
       estado_cuenta: calcularDiferencia(estadoCuentaEsperada, estadoCuentaContadoNum)
     };
 
-    const cuadreCorrecto = Math.abs(diferencias.efectivo) < 0.01 && 
-                           Math.abs(diferencias.tarjeta) < 0.01 && 
-                           Math.abs(diferencias.depositado) < 0.01 &&
-                           Math.abs(diferencias.estado_cuenta) < 0.01;
+    const cuadreCorrecto =
+      Math.abs(diferencias.efectivo) < 0.01 &&
+      Math.abs(diferencias.tarjeta) < 0.01 &&
+      Math.abs(diferencias.depositado) < 0.01 &&
+      Math.abs(diferencias.estado_cuenta) < 0.01;
 
     const fechaFormateada = format(new Date(fecha + 'T12:00:00'), 'dd/MM/yyyy');
     const horaActual = format(new Date(), 'HH:mm');
@@ -576,13 +538,10 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     return formas[forma] || forma;
   };
 
-  const calcularDiferencia = (esperado: number, contado: number) => {
-    return contado - esperado;
-  };
+  const calcularDiferencia = (esperado: number, contado: number) => contado - esperado;
 
   const totalGastos = gastos.reduce((sum, g) => sum + parseFloat(g.monto || 0), 0);
-  
-  // ✅ SUMAR regulares + móviles para cada forma de pago
+
   const efectivoRegular = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo' && !c.es_servicio_movil)?.total || 0;
   const efectivoMovil = cuadre?.cuadres_forma_pago.find(c => c.forma_pago === 'efectivo' && c.es_servicio_movil)?.total || 0;
   const efectivoEsperado = (efectivoRegular + efectivoMovil) - totalGastos;
@@ -611,19 +570,17 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
   const diferenciaTarjeta = calcularDiferencia(tarjetaEsperada, tarjetaContadoNum);
   const diferenciaEstadoCuenta = calcularDiferencia(estadoCuentaEsperada, estadoCuentaContadoNum);
 
-  const cuadreCorrecto = Math.abs(diferenciaEfectivo) < 0.01 && 
-                         Math.abs(diferenciaDepositado) < 0.01 &&
-                         Math.abs(diferenciaTarjeta) < 0.01 &&
-                         Math.abs(diferenciaEstadoCuenta) < 0.01;
+  const cuadreCorrecto =
+    Math.abs(diferenciaEfectivo) < 0.01 &&
+    Math.abs(diferenciaDepositado) < 0.01 &&
+    Math.abs(diferenciaTarjeta) < 0.01 &&
+    Math.abs(diferenciaEstadoCuenta) < 0.01;
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white shadow-sm border-b">
         <div className="container mx-auto px-4 py-4">
-          <button 
-            onClick={onBack} 
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-3 transition-colors"
-          >
+          <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-3 transition-colors">
             <ArrowLeft size={20} />
             <span className="font-medium">Volver</span>
           </button>
@@ -699,7 +656,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                       {cajaBloqueada ? 'Cuadre bloqueado - Solo lectura' : 'Cuenta el dinero físicamente e ingresa las cantidades'}
                     </p>
                   </div>
-                  
+
                   {cajaBloqueada && (
                     <div className="flex items-center gap-3">
                       {modoEdicion ? (
@@ -730,11 +687,10 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   )}
                 </div>
 
+                {/* Conteo de Efectivo */}
                 <div className="mb-8">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    💵 Conteo de Efectivo
-                  </h4>
-                  
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">💵 Conteo de Efectivo</h4>
+
                   <div className="bg-green-50 rounded-lg p-5 mb-4 border border-green-200">
                     <h5 className="font-medium text-gray-700 mb-3">BILLETES:</h5>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
@@ -750,11 +706,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                         <div key={billete.key}>
                           <label className="block text-xs font-medium text-gray-600 mb-1">{billete.label}</label>
                           <input
-                            type="number"
-                            min="0"
-                            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                              cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
-                            }`}
+                            type="number" min="0"
+                            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                             value={billetes[billete.key as keyof typeof billetes]}
                             onChange={(e) => setBilletes({ ...billetes, [billete.key]: e.target.value })}
                             disabled={cajaBloqueada}
@@ -785,11 +738,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                         <div key={moneda.key}>
                           <label className="block text-xs font-medium text-gray-600 mb-1">{moneda.label}</label>
                           <input
-                            type="number"
-                            min="0"
-                            className={`w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                              cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
-                            }`}
+                            type="number" min="0"
+                            className={`w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                             value={monedas[moneda.key as keyof typeof monedas]}
                             onChange={(e) => setMonedas({ ...monedas, [moneda.key]: e.target.value })}
                             disabled={cajaBloqueada}
@@ -809,24 +759,17 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   <div className="bg-green-100 border-2 border-green-500 rounded-lg p-4 mt-4">
                     <div className="flex justify-between items-center">
                       <span className="text-lg font-bold text-gray-900">TOTAL EFECTIVO EN CAJA:</span>
-                      <span className="text-3xl font-bold text-green-700">
-                        Q {calcularTotalEfectivoContado().toFixed(2)}
-                      </span>
+                      <span className="text-3xl font-bold text-green-700">Q {calcularTotalEfectivoContado().toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6 mb-6">
                   <div className="bg-purple-50 rounded-lg p-5 border border-purple-200">
-                    <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                      💳 Tarjeta (Vouchers)
-                    </label>
+                    <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">💳 Tarjeta (Vouchers)</label>
                     <input
-                      type="number"
-                      step="0.01"
-                      className={`w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                        cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
-                      }`}
+                      type="number" step="0.01"
+                      className={`w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                       value={tarjetaContado}
                       onChange={(e) => setTarjetaContado(e.target.value)}
                       disabled={cajaBloqueada}
@@ -837,15 +780,10 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   </div>
 
                   <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
-                    <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                      🏦 Transferencias/Depósitos
-                    </label>
+                    <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">🏦 Transferencias/Depósitos</label>
                     <input
-                      type="number"
-                      step="0.01"
-                      className={`w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                        cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
-                      }`}
+                      type="number" step="0.01"
+                      className={`w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                       value={transferenciaContado}
                       onChange={(e) => setTransferenciaContado(e.target.value)}
                       disabled={cajaBloqueada}
@@ -856,15 +794,10 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                   </div>
 
                   <div className="bg-amber-50 rounded-lg p-5 border border-amber-200 md:col-span-2">
-                    <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                      📋 Estado de Cuenta
-                    </label>
+                    <label className="block text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">📋 Estado de Cuenta</label>
                     <input
-                      type="number"
-                      step="0.01"
-                      className={`w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                        cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
-                      }`}
+                      type="number" step="0.01"
+                      className={`w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                       value={estadoCuentaContado}
                       onChange={(e) => setEstadoCuentaContado(e.target.value)}
                       disabled={cajaBloqueada}
@@ -878,9 +811,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Observaciones del Cierre</label>
                   <textarea
-                    className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''
-                    }`}
+                    className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${cajaBloqueada ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                     value={observaciones}
                     onChange={(e) => setObservaciones(e.target.value)}
                     disabled={cajaBloqueada}
@@ -891,38 +822,22 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
                 {!cajaBloqueada && (
                   <>
-                    <button
-                      onClick={guardarCuadre}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-4"
-                    >
+                    <button onClick={guardarCuadre} className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-4">
                       💾 Guardar Cuadre
                     </button>
-
                     <button
                       onClick={validarCuadre}
                       disabled={cuadreValidado}
-                      className={`w-full px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6 ${
-                        cuadreValidado 
-                          ? 'bg-gray-400 cursor-not-allowed text-white' 
-                          : 'bg-blue-600 hover:bg-blue-700 text-white'
-                      }`}
+                      className={`w-full px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6 ${cuadreValidado ? 'bg-gray-400 cursor-not-allowed text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
                     >
                       <CheckCircle2 size={24} />
                       {cuadreValidado ? '✓ Cuadre Validado' : 'Validar Cuadre'}
                     </button>
-
                     {cuadreValidado && !cuadreCerrado && (
-                      <button
-                        onClick={solicitarDescargaExcel}
-                        className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6"
-                      >
+                      <button onClick={solicitarDescargaExcel} className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6">
                         <FileText size={24} />
                         📥 Descargar Excel del Cuadre
-                        {necesitaAutorizacionParaExcel() && (
-                          <span className="ml-2 text-xs bg-orange-500 px-2 py-1 rounded">
-                            Requiere autorización
-                          </span>
-                        )}
+                        {necesitaAutorizacionParaExcel() && <span className="ml-2 text-xs bg-orange-500 px-2 py-1 rounded">Requiere autorización</span>}
                       </button>
                     )}
                   </>
@@ -930,33 +845,18 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
 
                 {cajaBloqueada && modoEdicion && (
                   <>
-                    <button
-                      onClick={guardarCuadre}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-4"
-                    >
+                    <button onClick={guardarCuadre} className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-4">
                       💾 Guardar Cambios
                     </button>
-
-                    <button
-                      onClick={validarCuadre}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6"
-                    >
+                    <button onClick={validarCuadre} className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6">
                       <CheckCircle2 size={24} />
                       Re-Validar Cuadre
                     </button>
-
                     {cuadreValidado && (
-                      <button
-                        onClick={solicitarDescargaExcel}
-                        className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6"
-                      >
+                      <button onClick={solicitarDescargaExcel} className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors mb-6">
                         <FileText size={24} />
                         📥 Descargar Excel del Cuadre
-                        {necesitaAutorizacionParaExcel() && (
-                          <span className="ml-2 text-xs bg-orange-500 px-2 py-1 rounded">
-                            Requiere autorización
-                          </span>
-                        )}
+                        {necesitaAutorizacionParaExcel() && <span className="ml-2 text-xs bg-orange-500 px-2 py-1 rounded">Requiere autorización</span>}
                       </button>
                     )}
                   </>
@@ -968,12 +868,8 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                       <Lock className="text-blue-600" size={28} />
                       <p className="text-blue-800 font-bold text-lg">Cuadre Bloqueado</p>
                     </div>
-                    <p className="text-sm text-blue-700 mb-2">
-                      Este cuadre corresponde a un día pasado y está en modo solo lectura
-                    </p>
-                    <p className="text-xs text-blue-600">
-                      Haga clic en el botón "Editar Cuadre" arriba para modificarlo (requiere autorización)
-                    </p>
+                    <p className="text-sm text-blue-700 mb-2">Este cuadre corresponde a un día pasado y está en modo solo lectura</p>
+                    <p className="text-xs text-blue-600">Haga clic en el botón "Editar Cuadre" arriba para modificarlo (requiere autorización)</p>
                   </div>
                 )}
 
@@ -983,101 +879,25 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                       <>
                         <div className="bg-gray-50 rounded-lg p-6 border-2 border-gray-300">
                           <h4 className="text-lg font-bold text-gray-900 mb-4">📊 Comparación Sistema vs Contado</h4>
-                          
                           <div className="space-y-3">
-                            <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
-                              <div className="flex justify-between items-center mb-2">
-                                <span className="font-semibold text-gray-900">💵 Efectivo (Incluye móviles)</span>
-                                <span className="text-green-700 font-bold">✓ Correcto</span>
-                              </div>
-                              <div className="grid grid-cols-3 gap-2 text-sm">
-                                <div>
-                                  <div className="text-gray-600">Sistema:</div>
-                                  <div className="font-bold">Q {efectivoEsperado.toFixed(2)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-600">Contado:</div>
-                                  <div className="font-bold">Q {efectivoContadoNum.toFixed(2)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-600">Diferencia:</div>
-                                  <div className="font-bold text-green-700">
-                                    {diferenciaEfectivo > 0 ? '+' : ''}{diferenciaEfectivo.toFixed(2)}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
-                              <div className="flex justify-between items-center mb-2">
-                                <span className="font-semibold text-gray-900">💳 Tarjeta (Incluye móviles)</span>
-                                <span className="text-green-700 font-bold">✓ Correcto</span>
-                              </div>
-                              <div className="grid grid-cols-3 gap-2 text-sm">
-                                <div>
-                                  <div className="text-gray-600">Sistema:</div>
-                                  <div className="font-bold">Q {tarjetaEsperada.toFixed(2)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-600">Contado:</div>
-                                  <div className="font-bold">Q {tarjetaContadoNum.toFixed(2)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-600">Diferencia:</div>
-                                  <div className="font-bold text-green-700">
-                                    {diferenciaTarjeta > 0 ? '+' : ''}{diferenciaTarjeta.toFixed(2)}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
-                              <div className="flex justify-between items-center mb-2">
-                                <span className="font-semibold text-gray-900">🏦 Transferencias (Incluye móviles)</span>
-                                <span className="text-green-700 font-bold">✓ Correcto</span>
-                              </div>
-                              <div className="grid grid-cols-3 gap-2 text-sm">
-                                <div>
-                                  <div className="text-gray-600">Sistema:</div>
-                                  <div className="font-bold">Q {depositadoEsperado.toFixed(2)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-600">Contado:</div>
-                                  <div className="font-bold">Q {depositadoContadoNum.toFixed(2)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-600">Diferencia:</div>
-                                  <div className="font-bold text-green-700">
-                                    {diferenciaDepositado > 0 ? '+' : ''}{diferenciaDepositado.toFixed(2)}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {estadoCuentaEsperada > 0 && (
-                              <div className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
+                            {[
+                              { label: '💵 Efectivo (Incluye móviles)', esperado: efectivoEsperado, contado: efectivoContadoNum, diferencia: diferenciaEfectivo },
+                              { label: '💳 Tarjeta (Incluye móviles)', esperado: tarjetaEsperada, contado: tarjetaContadoNum, diferencia: diferenciaTarjeta },
+                              { label: '🏦 Transferencias (Incluye móviles)', esperado: depositadoEsperado, contado: depositadoContadoNum, diferencia: diferenciaDepositado },
+                              ...(estadoCuentaEsperada > 0 ? [{ label: '📋 Estado de Cuenta (Incluye móviles)', esperado: estadoCuentaEsperada, contado: estadoCuentaContadoNum, diferencia: diferenciaEstadoCuenta }] : [])
+                            ].map((row, i) => (
+                              <div key={i} className="p-4 rounded-lg border-2 bg-green-50 border-green-500">
                                 <div className="flex justify-between items-center mb-2">
-                                  <span className="font-semibold text-gray-900">📋 Estado de Cuenta (Incluye móviles)</span>
+                                  <span className="font-semibold text-gray-900">{row.label}</span>
                                   <span className="text-green-700 font-bold">✓ Correcto</span>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 text-sm">
-                                  <div>
-                                    <div className="text-gray-600">Sistema:</div>
-                                    <div className="font-bold">Q {estadoCuentaEsperada.toFixed(2)}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-gray-600">Contado:</div>
-                                    <div className="font-bold">Q {estadoCuentaContadoNum.toFixed(2)}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-gray-600">Diferencia:</div>
-                                    <div className="font-bold text-green-700">
-                                      {diferenciaEstadoCuenta > 0 ? '+' : ''}{diferenciaEstadoCuenta.toFixed(2)}
-                                    </div>
-                                  </div>
+                                  <div><div className="text-gray-600">Sistema:</div><div className="font-bold">Q {row.esperado.toFixed(2)}</div></div>
+                                  <div><div className="text-gray-600">Contado:</div><div className="font-bold">Q {row.contado.toFixed(2)}</div></div>
+                                  <div><div className="text-gray-600">Diferencia:</div><div className="font-bold text-green-700">{row.diferencia > 0 ? '+' : ''}{row.diferencia.toFixed(2)}</div></div>
                                 </div>
                               </div>
-                            )}
+                            ))}
                           </div>
                         </div>
 
@@ -1089,39 +909,16 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                               <p className="text-sm text-green-600">Confirme el cierre de caja</p>
                             </div>
                           </div>
-
                           <div className="space-y-4">
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Nombre de quien cuadro *
-                              </label>
-                              <input
-                                type="text"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                                value={nombreCajero}
-                                onChange={(e) => setNombreCajero(e.target.value)}
-                                placeholder="Ingrese su nombre completo"
-                              />
+                              <label className="block text-sm font-medium text-gray-700 mb-2">Nombre de quien cuadro *</label>
+                              <input type="text" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" value={nombreCajero} onChange={(e) => setNombreCajero(e.target.value)} placeholder="Ingrese su nombre completo" />
                             </div>
-
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                PIN de Autorización *
-                              </label>
-                              <input
-                                type="password"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                                value={pinCierre}
-                                onChange={(e) => setPinCierre(e.target.value)}
-                                placeholder="••••"
-                                maxLength={4}
-                              />
+                              <label className="block text-sm font-medium text-gray-700 mb-2">PIN de Autorización *</label>
+                              <input type="password" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" value={pinCierre} onChange={(e) => setPinCierre(e.target.value)} placeholder="••••" maxLength={4} />
                             </div>
-
-                            <button
-                              onClick={confirmarCierre}
-                              className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors"
-                            >
+                            <button onClick={confirmarCierre} className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-colors">
                               <Lock size={24} />
                               Confirmar y Cerrar Caja
                             </button>
@@ -1137,41 +934,13 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                             <p className="text-sm text-red-600">Las siguientes formas de pago NO cuadran:</p>
                           </div>
                         </div>
-
                         <div className="space-y-2 mb-4">
-                          {diferenciaEfectivo !== 0 && (
-                            <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2">
-                              <span className="text-red-600 font-bold">✗</span>
-                              <span className="font-medium text-gray-900">💵 Efectivo</span>
-                            </div>
-                          )}
-                          {diferenciaTarjeta !== 0 && (
-                            <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2">
-                              <span className="text-red-600 font-bold">✗</span>
-                              <span className="font-medium text-gray-900">💳 Tarjeta</span>
-                            </div>
-                          )}
-                          {diferenciaDepositado !== 0 && (
-                            <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2">
-                              <span className="text-red-600 font-bold">✗</span>
-                              <span className="font-medium text-gray-900">🏦 Transferencias</span>
-                            </div>
-                          )}
-                          {diferenciaEstadoCuenta !== 0 && (
-                            <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2">
-                              <span className="text-red-600 font-bold">✗</span>
-                              <span className="font-medium text-gray-900">📋 Estado de Cuenta</span>
-                            </div>
-                          )}
+                          {diferenciaEfectivo !== 0 && <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2"><span className="text-red-600 font-bold">✗</span><span className="font-medium text-gray-900">💵 Efectivo</span></div>}
+                          {diferenciaTarjeta !== 0 && <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2"><span className="text-red-600 font-bold">✗</span><span className="font-medium text-gray-900">💳 Tarjeta</span></div>}
+                          {diferenciaDepositado !== 0 && <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2"><span className="text-red-600 font-bold">✗</span><span className="font-medium text-gray-900">🏦 Transferencias</span></div>}
+                          {diferenciaEstadoCuenta !== 0 && <div className="bg-white border border-red-300 rounded p-3 flex items-center gap-2"><span className="text-red-600 font-bold">✗</span><span className="font-medium text-gray-900">📋 Estado de Cuenta</span></div>}
                         </div>
-
-                        <button
-                          onClick={() => {
-                            setCuadreValidado(false);
-                            setMostrarEsperados(false);
-                          }}
-                          className="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-                        >
+                        <button onClick={() => { setCuadreValidado(false); setMostrarEsperados(false); }} className="w-full bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
                           Volver a Contar
                         </button>
                       </div>
@@ -1181,27 +950,17 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
               </div>
             )}
 
+            {/* Gastos */}
             <div className="bg-white rounded-lg shadow-sm p-6 mb-6 border border-gray-200">
               <div className="flex items-center justify-between mb-4">
-                <button
-                  onClick={() => setMostrarGastos(!mostrarGastos)}
-                  className="flex items-center gap-2"
-                >
+                <button onClick={() => setMostrarGastos(!mostrarGastos)} className="flex items-center gap-2">
                   <span className="text-red-600 text-2xl">📉</span>
                   <h3 className="text-lg font-semibold text-gray-900">Gastos del Día</h3>
-                  {gastos.length > 0 && (
-                    <span className="bg-red-100 text-red-700 text-xs font-medium px-2 py-1 rounded-full">
-                      {gastos.length}
-                    </span>
-                  )}
+                  {gastos.length > 0 && <span className="bg-red-100 text-red-700 text-xs font-medium px-2 py-1 rounded-full">{gastos.length}</span>}
                   {mostrarGastos ? <ChevronUp size={16} className="text-gray-400 ml-1" /> : <ChevronDown size={16} className="text-gray-400 ml-1" />}
                 </button>
-                <button
-                  onClick={() => setShowModalGasto(true)}
-                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
-                >
-                  <Plus size={16} />
-                  Agregar
+                <button onClick={() => setShowModalGasto(true)} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">
+                  <Plus size={16} /> Agregar
                 </button>
               </div>
 
@@ -1218,57 +977,37 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                           <div className="font-medium text-gray-900">{gasto.concepto}</div>
                           <div className="text-xs text-gray-500 mt-1">
                             {(() => {
-                              const fecha = new Date(gasto.created_at);
-                              const horaGT = new Date(fecha.getTime() - (6 * 60 * 60 * 1000));
-                              return horaGT.toLocaleTimeString('es-GT', { 
-                                hour: '2-digit', 
-                                minute: '2-digit',
-                                hour12: true
-                              });
+                              const f = new Date(gasto.created_at);
+                              const horaGT = new Date(f.getTime() - (6 * 60 * 60 * 1000));
+                              return horaGT.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', hour12: true });
                             })()}
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <div className="text-lg font-bold text-red-600">
-                            - Q {gasto.monto.toFixed(2)}
-                          </div>
-                          <button
-                            onClick={() => eliminarGasto(gasto.id)}
-                            className="text-red-600 hover:bg-red-100 p-2 rounded transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          <div className="text-lg font-bold text-red-600">- Q {gasto.monto.toFixed(2)}</div>
+                          <button onClick={() => eliminarGasto(gasto.id)} className="text-red-600 hover:bg-red-100 p-2 rounded transition-colors"><Trash2 size={16} /></button>
                         </div>
                       </div>
                     ))}
-                    {gastos.length > 0 && (
-                      <div className="flex justify-between items-center p-4 bg-red-100 border border-red-300 rounded-lg font-bold mt-3">
-                        <span className="text-gray-900">Total Gastos:</span>
-                        <span className="text-red-700 text-xl">- Q {totalGastos.toFixed(2)}</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between items-center p-4 bg-red-100 border border-red-300 rounded-lg font-bold mt-3">
+                      <span className="text-gray-900">Total Gastos:</span>
+                      <span className="text-red-700 text-xl">- Q {totalGastos.toFixed(2)}</span>
+                    </div>
                   </div>
                 )
               )}
             </div>
 
+            {/* Anuladas */}
             {consultasAnuladas.length > 0 && (
               <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-                <button
-                  onClick={() => setMostrarAnuladas(!mostrarAnuladas)}
-                  className="w-full flex items-center justify-between"
-                >
+                <button onClick={() => setMostrarAnuladas(!mostrarAnuladas)} className="w-full flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="bg-red-100 p-2 rounded-lg">
-                      <X size={20} className="text-red-600" />
-                    </div>
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      Consultas Anuladas ({consultasAnuladas.length})
-                    </h3>
+                    <div className="bg-red-100 p-2 rounded-lg"><X size={20} className="text-red-600" /></div>
+                    <h3 className="text-lg font-semibold text-gray-900">Consultas Anuladas ({consultasAnuladas.length})</h3>
                   </div>
                   {mostrarAnuladas ? <ChevronUp size={20} className="text-gray-400" /> : <ChevronDown size={20} className="text-gray-400" />}
                 </button>
-                
                 {mostrarAnuladas && (
                   <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
                     {consultasAnuladas.map((anulada, index) => (
@@ -1279,9 +1018,7 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
                             <div className="text-sm text-gray-600 mt-1">{anulada.motivo_anulacion}</div>
                             <div className="text-xs text-gray-500 mt-1">Anulado por: {anulada.usuario_anulo}</div>
                           </div>
-                          <div className="text-lg font-bold text-red-600">
-                            Q {anulada.total.toFixed(2)}
-                          </div>
+                          <div className="text-lg font-bold text-red-600">Q {anulada.total.toFixed(2)}</div>
                         </div>
                       </div>
                     ))}
@@ -1293,66 +1030,27 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
         )}
       </div>
 
+      {/* Modal Gasto */}
       {showModalGasto && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
             <div className="flex justify-between items-center mb-5">
               <h2 className="text-xl font-bold text-gray-900">Agregar Gasto</h2>
-              <button
-                onClick={() => {
-                  setShowModalGasto(false);
-                  setConceptoGasto('');
-                  setMontoGasto('');
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X size={24} />
-              </button>
+              <button onClick={() => { setShowModalGasto(false); setConceptoGasto(''); setMontoGasto(''); }} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
             </div>
-
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Concepto *</label>
-                <input
-                  type="text"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Ej: Diesel, Papelería, Mantenimiento"
-                  value={conceptoGasto}
-                  onChange={(e) => setConceptoGasto(e.target.value)}
-                />
+                <input type="text" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Ej: Diesel, Papelería, Mantenimiento" value={conceptoGasto} onChange={(e) => setConceptoGasto(e.target.value)} />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Monto (Q) *</label>
-                <input
-                  type="number"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  placeholder="0.00"
-                  step="0.01"
-                  value={montoGasto}
-                  onChange={(e) => setMontoGasto(e.target.value)}
-                  onWheel={(e) => e.currentTarget.blur()}
-                />
+                <input type="number" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="0.00" step="0.01" value={montoGasto} onChange={(e) => setMontoGasto(e.target.value)} onWheel={(e) => e.currentTarget.blur()} />
               </div>
             </div>
-
             <div className="flex gap-3 justify-end mt-6">
-              <button
-                onClick={() => {
-                  setShowModalGasto(false);
-                  setConceptoGasto('');
-                  setMontoGasto('');
-                }}
-                className="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={agregarGasto} 
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
-              >
-                Guardar Gasto
-              </button>
+              <button onClick={() => { setShowModalGasto(false); setConceptoGasto(''); setMontoGasto(''); }} className="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors">Cancelar</button>
+              <button onClick={agregarGasto} className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors">Guardar Gasto</button>
             </div>
           </div>
         </div>

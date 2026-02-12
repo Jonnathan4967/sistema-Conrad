@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { EditarPacienteModal } from '../components/EditarPacienteModal';
 import { AgregarEstudioModal } from '../components/AgregarEstudioModal';
-import { AutorizacionModal } from '../components/AutorizacionModal'; // ✅ NUEVO
+import { AutorizacionModal } from '../components/AutorizacionModal';
 import { generarReciboCompleto, generarReciboMedico, abrirRecibo } from '../lib/recibos';
 
 interface PacientesPageProps {
@@ -12,14 +12,13 @@ interface PacientesPageProps {
 }
 
 export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
-  // ✅ FUNCIÓN HELPER - Obtener fecha en zona horaria de Guatemala (GMT-6)
   const getFechaGuatemala = () => {
     const ahora = new Date();
     const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
     return format(guatemalaTime, 'yyyy-MM-dd');
   };
 
-  const [fecha, setFecha] = useState(getFechaGuatemala()); // ✅ CORREGIDO
+  const [fecha, setFecha] = useState(getFechaGuatemala());
   const [consultas, setConsultas] = useState<any[]>([]);
   const [consultasAnuladas, setConsultasAnuladas] = useState<any[]>([]);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
@@ -38,12 +37,17 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   const [showModalTipoRecibo, setShowModalTipoRecibo] = useState(false);
   const [datosReciboTemp, setDatosReciboTemp] = useState<any>(null);
 
-  // ✅ NUEVO: Estados para autorización
+  // Estados para autorización
   const [mostrarAutorizacion, setMostrarAutorizacion] = useState(false);
   const [accionPendiente, setAccionPendiente] = useState<{
-    tipo: 'eliminar_consulta' | 'editar_paciente' | 'eliminar_estudio';
+    tipo: 'eliminar_consulta' | 'editar_paciente' | 'eliminar_estudio' | 'editar_precio';
     datos: any;
   } | null>(null);
+
+  // ✅ NUEVO: Estados para modal de edición de precio
+  const [showEditPrecioModal, setShowEditPrecioModal] = useState(false);
+  const [nuevoPrecio, setNuevoPrecio] = useState('');
+  const [justificacionPrecio, setJustificacionPrecio] = useState('');
 
   useEffect(() => {
     cargarConsultas();
@@ -64,10 +68,10 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         .order('numero_paciente', { ascending: true });
 
       if (error) throw error;
-      
+
       const activas = (data || []).filter(c => !c.anulado);
       const anuladas = (data || []).filter(c => c.anulado);
-      
+
       setConsultas(activas);
       setConsultasAnuladas(anuladas);
     } catch (error) {
@@ -77,7 +81,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     setLoading(false);
   };
 
-  // ✅ NUEVO: Solicitar autorización para eliminar consulta
+  // ─── ELIMINAR CONSULTA ────────────────────────────────────────────────────
   const solicitarEliminarConsulta = (consultaId: string, numeroEliminado: number | null, nombrePaciente: string) => {
     setAccionPendiente({
       tipo: 'eliminar_consulta',
@@ -86,14 +90,12 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     setMostrarAutorizacion(true);
   };
 
-  // ✅ MODIFICADO: Eliminar consulta (ejecuta después de autorización)
   const eliminarConsulta = async () => {
     if (!accionPendiente || accionPendiente.tipo !== 'eliminar_consulta') return;
 
     const { consultaId, numeroEliminado, nombrePaciente } = accionPendiente.datos;
 
     const motivo = prompt('⚠️ ANULAR CONSULTA\n\n¿Por qué se anula?\n(Obligatorio para auditoría)');
-    
     if (!motivo || motivo.trim() === '') {
       alert('❌ Debes dar un motivo');
       setMostrarAutorizacion(false);
@@ -101,7 +103,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       return;
     }
 
-    const mensajeConfirmacion = numeroEliminado 
+    const mensajeConfirmacion = numeroEliminado
       ? `¿ANULAR esta consulta?\n\nMotivo: ${motivo}\n\nLos pacientes posteriores se renumerarán automáticamente.`
       : `¿ANULAR este servicio móvil?\n\nMotivo: ${motivo}`;
 
@@ -113,7 +115,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
     try {
       const usuarioActual = sessionStorage.getItem('nombreUsuarioConrad') || 'Desconocido';
-      
+
       const { error } = await supabase
         .from('consultas')
         .update({
@@ -128,7 +130,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       if (error) throw error;
 
       let consultasPosteriores: any[] = [];
-      
+
       if (numeroEliminado !== null && numeroEliminado !== undefined) {
         const { data, error: errorConsultar } = await supabase
           .from('consultas')
@@ -141,19 +143,15 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         if (errorConsultar) throw errorConsultar;
         consultasPosteriores = data || [];
 
-        if (consultasPosteriores.length > 0) {
-          for (const consulta of consultasPosteriores) {
-            const { error: errorActualizar } = await supabase
-              .from('consultas')
-              .update({ numero_paciente: consulta.numero_paciente - 1 })
-              .eq('id', consulta.id);
-            
-            if (errorActualizar) throw errorActualizar;
-          }
+        for (const consulta of consultasPosteriores) {
+          const { error: errorActualizar } = await supabase
+            .from('consultas')
+            .update({ numero_paciente: consulta.numero_paciente - 1 })
+            .eq('id', consulta.id);
+          if (errorActualizar) throw errorActualizar;
         }
       }
 
-      // ✅ Registrar en log
       const usuario = sessionStorage.getItem('usernameConrad') || '';
       const nombreUsuario = sessionStorage.getItem('nombreUsuarioConrad') || '';
       const rol = sessionStorage.getItem('rolUsuarioConrad') || '';
@@ -188,7 +186,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     }
   };
 
-  // ✅ NUEVO: Solicitar autorización para eliminar estudio
+  // ─── ELIMINAR ESTUDIO ─────────────────────────────────────────────────────
   const solicitarEliminarEstudio = (consultaId: string, detalleId: string, precioEstudio: number, nombreEstudio: string, nombrePaciente: string) => {
     setAccionPendiente({
       tipo: 'eliminar_estudio',
@@ -197,7 +195,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     setMostrarAutorizacion(true);
   };
 
-  // ✅ MODIFICADO: Eliminar estudio (ejecuta después de autorización)
   const eliminarEstudio = async () => {
     if (!accionPendiente || accionPendiente.tipo !== 'eliminar_estudio') return;
 
@@ -221,7 +218,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
 
       if (errorDetalle) throw errorDetalle;
 
-      // ✅ Registrar en log
       const usuario = sessionStorage.getItem('usernameConrad') || '';
       const nombreUsuario = sessionStorage.getItem('nombreUsuarioConrad') || '';
       const rol = sessionStorage.getItem('rolUsuarioConrad') || '';
@@ -252,7 +248,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     }
   };
 
-  // ✅ NUEVO: Solicitar autorización para editar paciente
+  // ─── EDITAR PACIENTE ──────────────────────────────────────────────────────
   const solicitarEditarPaciente = (consulta: any) => {
     setAccionPendiente({
       tipo: 'editar_paciente',
@@ -261,10 +257,8 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     setMostrarAutorizacion(true);
   };
 
-  // ✅ MODIFICADO: Abrir modal editar (ejecuta después de autorización)
   const abrirEditarPaciente = () => {
     if (!accionPendiente || accionPendiente.tipo !== 'editar_paciente') return;
-
     const { consulta } = accionPendiente.datos;
     setPacienteEditando(consulta.pacientes);
     setConsultaSeleccionada(consulta);
@@ -273,8 +267,141 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     setAccionPendiente(null);
   };
 
+  // ─── ✅ EDITAR PRECIO DE ESTUDIO ──────────────────────────────────────────
+  const solicitarEditarPrecio = (
+    consultaId: string,
+    detalleId: string,
+    precioActual: number,
+    nombreEstudio: string,
+    nombrePaciente: string
+  ) => {
+    setAccionPendiente({
+      tipo: 'editar_precio',
+      datos: { consultaId, detalleId, precioActual, nombreEstudio, nombrePaciente }
+    });
+    setMostrarAutorizacion(true);
+  };
+
+  // Se llama después de que el AutorizacionModal aprueba el token
+  const abrirModalEditarPrecio = () => {
+    if (!accionPendiente || accionPendiente.tipo !== 'editar_precio') return;
+    setNuevoPrecio(accionPendiente.datos.precioActual.toFixed(2));
+    setJustificacionPrecio('');
+    setMostrarAutorizacion(false);
+    setShowEditPrecioModal(true);
+  };
+
+  const guardarNuevoPrecio = async () => {
+    if (!accionPendiente || accionPendiente.tipo !== 'editar_precio') return;
+
+    const precio = parseFloat(nuevoPrecio);
+    if (isNaN(precio) || precio < 0) {
+      alert('❌ Ingresa un precio válido (número mayor o igual a 0).');
+      return;
+    }
+
+    if (!justificacionPrecio.trim()) {
+      alert('❌ La justificación es obligatoria para la auditoría.');
+      return;
+    }
+
+    const { detalleId, precioActual, nombreEstudio, nombrePaciente } = accionPendiente.datos;
+    const usuarioActual = sessionStorage.getItem('nombreUsuarioConrad') || 'Desconocido';
+
+    try {
+      const { error } = await supabase
+        .from('detalle_consultas')
+        .update({ precio })
+        .eq('id', detalleId);
+
+      if (error) throw error;
+
+      const usuario = sessionStorage.getItem('usernameConrad') || '';
+      const nombreUsuario = sessionStorage.getItem('nombreUsuarioConrad') || '';
+      const rol = sessionStorage.getItem('rolUsuarioConrad') || '';
+
+      await supabase.rpc('registrar_actividad', {
+        p_usuario: usuario,
+        p_nombre_usuario: nombreUsuario,
+        p_rol: rol,
+        p_modulo: 'sanatorio',
+        p_accion: 'editar_precio',
+        p_tipo_registro: 'detalle_consulta',
+        p_registro_id: detalleId,
+        p_detalles: {
+          paciente: nombrePaciente,
+          estudio: nombreEstudio,
+          precio_anterior: precioActual,
+          precio_nuevo: precio,
+          justificacion: justificacionPrecio.trim(),
+          usuario: usuarioActual
+        },
+        p_requirio_autorizacion: true
+      });
+
+      alert(
+        `✅ Precio actualizado\n\nEstudio: ${nombreEstudio}\nPrecio anterior: Q ${precioActual.toFixed(2)}\nPrecio nuevo: Q ${precio.toFixed(2)}\n\nUsuario: ${usuarioActual}\nJustificación: ${justificacionPrecio.trim()}`
+      );
+
+      setShowEditPrecioModal(false);
+      setNuevoPrecio('');
+      setJustificacionPrecio('');
+      setAccionPendiente(null);
+      cargarConsultas();
+    } catch (error) {
+      console.error('Error al actualizar precio:', error);
+      alert('❌ Error al actualizar el precio');
+    }
+  };
+
+  // ─── EJECUTAR ACCIÓN AUTORIZADA ───────────────────────────────────────────
+  const ejecutarAccionAutorizada = () => {
+    if (!accionPendiente) return;
+    switch (accionPendiente.tipo) {
+      case 'eliminar_consulta':
+        eliminarConsulta();
+        break;
+      case 'editar_paciente':
+        abrirEditarPaciente();
+        break;
+      case 'eliminar_estudio':
+        eliminarEstudio();
+        break;
+      case 'editar_precio':
+        abrirModalEditarPrecio();
+        break;
+    }
+  };
+
+  const getDescripcionAccion = () => {
+    if (!accionPendiente) return '';
+    switch (accionPendiente.tipo) {
+      case 'eliminar_consulta':
+        return `${accionPendiente.datos.nombrePaciente}${accionPendiente.datos.numeroEliminado ? ` - #${accionPendiente.datos.numeroEliminado}` : ' - Servicio Móvil'}`;
+      case 'editar_paciente':
+        return `${accionPendiente.datos.consulta.pacientes.nombre} - ${accionPendiente.datos.consulta.pacientes.edad} años`;
+      case 'eliminar_estudio':
+        return `${accionPendiente.datos.nombreEstudio} - Paciente: ${accionPendiente.datos.nombrePaciente}`;
+      case 'editar_precio':
+        return `${accionPendiente.datos.nombreEstudio} — Precio actual: Q ${accionPendiente.datos.precioActual.toFixed(2)}\nPaciente: ${accionPendiente.datos.nombrePaciente}`;
+      default:
+        return '';
+    }
+  };
+
+  const getNombreAccion = () => {
+    if (!accionPendiente) return '';
+    switch (accionPendiente.tipo) {
+      case 'eliminar_consulta':  return 'Anular Consulta';
+      case 'editar_paciente':    return 'Editar Paciente';
+      case 'eliminar_estudio':   return 'Eliminar Estudio';
+      case 'editar_precio':      return 'Editar Precio de Estudio';
+      default:                   return '';
+    }
+  };
+
+  // ─── RESTO DE FUNCIONES (sin cambios) ─────────────────────────────────────
   const abrirAgregarEstudio = (consulta: any) => {
-    // ✅ NO REQUIERE AUTORIZACIÓN
     setConsultaSeleccionada(consulta);
     setShowAgregarEstudioModal(true);
   };
@@ -291,7 +418,6 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           municipio: pacienteData.municipio
         })
         .eq('id', pacienteEditando.id);
-
       if (errorPaciente) throw errorPaciente;
 
       const { error: errorConsulta } = await supabase
@@ -302,10 +428,8 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           sin_informacion_medico: !(medicoId || medicoNombre)
         })
         .eq('id', consultaSeleccionada.id);
-
       if (errorConsulta) throw errorConsulta;
 
-      // ✅ Registrar en log
       const usuario = sessionStorage.getItem('usernameConrad') || '';
       const nombreUsuario = sessionStorage.getItem('nombreUsuarioConrad') || '';
       const rol = sessionStorage.getItem('rolUsuarioConrad') || '';
@@ -345,11 +469,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   };
 
   const guardarVoucher = async () => {
-    if (!voucherEditando.trim()) {
-      alert('Ingrese el número');
-      return;
-    }
-
+    if (!voucherEditando.trim()) { alert('Ingrese el número'); return; }
     try {
       let updateData: any = {};
       if (consultaSeleccionada.forma_pago === 'tarjeta') {
@@ -361,14 +481,8 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         updateData.requiere_factura = true;
         updateData.nit = nitEditando.trim() || 'C/F';
       }
-
-      const { error } = await supabase
-        .from('consultas')
-        .update(updateData)
-        .eq('id', consultaSeleccionada.id);
-
+      const { error } = await supabase.from('consultas').update(updateData).eq('id', consultaSeleccionada.id);
       if (error) throw error;
-
       alert('Información actualizada exitosamente');
       setShowEditVoucherModal(false);
       setConsultaSeleccionada(null);
@@ -389,37 +503,17 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   };
 
   const guardarFormaPago = async () => {
-    if (!formaPagoEditando) {
-      alert('Seleccione una forma de pago');
-      return;
-    }
-
+    if (!formaPagoEditando) { alert('Seleccione una forma de pago'); return; }
     try {
-      const updateData: any = {
-        forma_pago: formaPagoEditando,
-        requiere_factura: requiereFacturaEditando
-      };
-
-      if (formaPagoEditando !== 'tarjeta') {
-        updateData.numero_voucher = null;
-      }
-      if (formaPagoEditando !== 'transferencia') {
-        updateData.numero_transferencia = null;
-      }
+      const updateData: any = { forma_pago: formaPagoEditando, requiere_factura: requiereFacturaEditando };
+      if (formaPagoEditando !== 'tarjeta') updateData.numero_voucher = null;
+      if (formaPagoEditando !== 'transferencia') updateData.numero_transferencia = null;
       if (formaPagoEditando !== 'efectivo_facturado') {
         updateData.numero_factura = null;
-        if (!requiereFacturaEditando) {
-          updateData.nit = null;
-        }
+        if (!requiereFacturaEditando) updateData.nit = null;
       }
-
-      const { error } = await supabase
-        .from('consultas')
-        .update(updateData)
-        .eq('id', consultaSeleccionada.id);
-
+      const { error } = await supabase.from('consultas').update(updateData).eq('id', consultaSeleccionada.id);
       if (error) throw error;
-
       alert('✅ Forma de pago actualizada exitosamente');
       setShowEditFormaPagoModal(false);
       setConsultaSeleccionada(null);
@@ -435,16 +529,13 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   const reimprimirRecibo = (consulta: any) => {
     const tieneMedico = consulta.medicos || consulta.medico_recomendado;
     const esReferente = tieneMedico && !consulta.sin_informacion_medico;
-    
     const estudiosRecibo = consulta.detalle_consultas.map((d: any) => ({
       nombre: d.sub_estudios.nombre,
       precio: d.precio,
       comentarios: d.comentarios || undefined
     }));
-
     const total = estudiosRecibo.reduce((sum: number, e: any) => sum + e.precio, 0);
     const nombreMedico = consulta.medicos?.nombre || consulta.medico_recomendado;
-
     const datosRecibo = {
       numeroPaciente: consulta.numero_paciente,
       paciente: {
@@ -462,30 +553,18 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       fecha: new Date(consulta.created_at),
       sinInfoMedico: consulta.sin_informacion_medico
     };
-
     setDatosReciboTemp(datosRecibo);
     setShowModalTipoRecibo(true);
   };
 
   const reimprimirSoloAdicionales = (consulta: any) => {
     const estudiosAdicionales = consulta.detalle_consultas.filter((d: any) => d.es_adicional);
-
-    if (estudiosAdicionales.length === 0) {
-      alert('Esta consulta no tiene estudios adicionales');
-      return;
-    }
-
+    if (estudiosAdicionales.length === 0) { alert('Esta consulta no tiene estudios adicionales'); return; }
     const tieneMedico = consulta.medicos || consulta.medico_recomendado;
     const esReferente = tieneMedico && !consulta.sin_informacion_medico;
-    
-    const estudiosRecibo = estudiosAdicionales.map((d: any) => ({
-      nombre: d.sub_estudios.nombre,
-      precio: d.precio
-    }));
-
+    const estudiosRecibo = estudiosAdicionales.map((d: any) => ({ nombre: d.sub_estudios.nombre, precio: d.precio }));
     const total = estudiosRecibo.reduce((sum: number, e: any) => sum + e.precio, 0);
     const nombreMedico = consulta.medicos?.nombre || consulta.medico_recomendado;
-
     const datosRecibo = {
       numeroPaciente: consulta.numero_paciente,
       paciente: {
@@ -503,22 +582,17 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       fecha: new Date(),
       sinInfoMedico: consulta.sin_informacion_medico
     };
-
     setDatosReciboTemp(datosRecibo);
     setShowModalTipoRecibo(true);
   };
 
   const imprimirReciboSeleccionado = (tipoRecibo: 'completo' | 'medico') => {
     if (!datosReciboTemp) return;
-
     if (tipoRecibo === 'completo') {
-      const htmlCompleto = generarReciboCompleto(datosReciboTemp);
-      abrirRecibo(htmlCompleto, 'Recibo Completo');
+      abrirRecibo(generarReciboCompleto(datosReciboTemp), 'Recibo Completo');
     } else {
-      const htmlMedico = generarReciboMedico(datosReciboTemp);
-      abrirRecibo(htmlMedico, 'Orden Médico');
+      abrirRecibo(generarReciboMedico(datosReciboTemp), 'Orden Médico');
     }
-
     setShowModalTipoRecibo(false);
     setDatosReciboTemp(null);
   };
@@ -540,37 +614,28 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
   };
 
   const renumerarTodosPacientes = async () => {
-    if (!confirm('¿Desea renumerar todos los pacientes del día en orden de llegada?\n\nEsto organizará los números: 1, 2, 3, 4...')) {
-      return;
-    }
-
+    if (!confirm('¿Desea renumerar todos los pacientes del día en orden de llegada?\n\nEsto organizará los números: 1, 2, 3, 4...')) return;
     try {
       setLoading(true);
-      
       const { data: consultasOrdenadas, error: errorConsultar } = await supabase
         .from('consultas')
         .select('id, created_at')
         .eq('fecha', fecha)
         .or('anulado.is.null,anulado.eq.false')
         .order('created_at', { ascending: true });
-
       if (errorConsultar) throw errorConsultar;
-
       if (!consultasOrdenadas || consultasOrdenadas.length === 0) {
         alert('No hay consultas para renumerar');
         setLoading(false);
         return;
       }
-
       for (let i = 0; i < consultasOrdenadas.length; i++) {
         const { error: errorActualizar } = await supabase
           .from('consultas')
           .update({ numero_paciente: i + 1 })
           .eq('id', consultasOrdenadas[i].id);
-        
         if (errorActualizar) throw errorActualizar;
       }
-
       alert(`${consultasOrdenadas.length} pacientes renumerados correctamente`);
       await cargarConsultas();
     } catch (error) {
@@ -581,57 +646,10 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     }
   };
 
-  // ✅ NUEVO: Ejecutar acción autorizada
-  const ejecutarAccionAutorizada = () => {
-    if (!accionPendiente) return;
-
-    switch (accionPendiente.tipo) {
-      case 'eliminar_consulta':
-        eliminarConsulta();
-        break;
-      case 'editar_paciente':
-        abrirEditarPaciente();
-        break;
-      case 'eliminar_estudio':
-        eliminarEstudio();
-        break;
-    }
-  };
-
-  // ✅ NUEVO: Obtener descripción para modal
-  const getDescripcionAccion = () => {
-    if (!accionPendiente) return '';
-
-    switch (accionPendiente.tipo) {
-      case 'eliminar_consulta':
-        return `${accionPendiente.datos.nombrePaciente}${accionPendiente.datos.numeroEliminado ? ` - #${accionPendiente.datos.numeroEliminado}` : ' - Servicio Móvil'}`;
-      case 'editar_paciente':
-        return `${accionPendiente.datos.consulta.pacientes.nombre} - ${accionPendiente.datos.consulta.pacientes.edad} años`;
-      case 'eliminar_estudio':
-        return `${accionPendiente.datos.nombreEstudio} - Paciente: ${accionPendiente.datos.nombrePaciente}`;
-      default:
-        return '';
-    }
-  };
-
-  const getNombreAccion = () => {
-    if (!accionPendiente) return '';
-    
-    switch (accionPendiente.tipo) {
-      case 'eliminar_consulta':
-        return 'Anular Consulta';
-      case 'editar_paciente':
-        return 'Editar Paciente';
-      case 'eliminar_estudio':
-        return 'Eliminar Estudio';
-      default:
-        return '';
-    }
-  };
-
+  // ─── RENDER CONSULTA ──────────────────────────────────────────────────────
   const renderConsulta = (consulta: any, index: number) => {
     const total = consulta.detalle_consultas.reduce((sum: number, d: any) => sum + d.precio, 0);
-    
+
     return (
       <div key={consulta.id} className={`card hover:shadow-lg transition-shadow ${consulta.anulado ? 'border-4 border-red-500 bg-red-50' : ''}`}>
         {consulta.anulado && (
@@ -645,13 +663,14 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
             </button>
           </div>
         )}
+
         <div className="flex justify-between items-start mb-4">
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <h3 className={`text-lg font-bold ${consulta.anulado ? 'text-red-700 line-through' : consulta.es_servicio_movil ? 'text-purple-700' : 'text-blue-700'}`}>
-                {consulta.anulado 
-                  ? '#ANULADO' 
-                  : consulta.es_servicio_movil 
+                {consulta.anulado
+                  ? '#ANULADO'
+                  : consulta.es_servicio_movil
                     ? '📱 MÓVIL'
                     : `#${consulta.numero_paciente || (index + 1)}`
                 } - {consulta.pacientes.nombre}
@@ -669,46 +688,25 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
               Hora: {format(new Date(consulta.created_at), 'HH:mm')}
             </p>
           </div>
+
           <div className="flex gap-2">
             {!consulta.anulado && (
               <>
-                <button
-                  onClick={() => abrirAgregarEstudio(consulta)}
-                  className="p-2 text-purple-600 hover:bg-purple-50 rounded transition-colors"
-                  title="Agregar estudios"
-                >
+                <button onClick={() => abrirAgregarEstudio(consulta)} className="p-2 text-purple-600 hover:bg-purple-50 rounded transition-colors" title="Agregar estudios">
                   <Plus size={18} />
                 </button>
                 {consulta.detalle_consultas.some((d: any) => d.es_adicional) && (
-                  <button
-                    onClick={() => reimprimirSoloAdicionales(consulta)}
-                    className="p-2 text-orange-600 hover:bg-orange-50 rounded transition-colors"
-                    title="Imprimir solo adicionales"
-                  >
+                  <button onClick={() => reimprimirSoloAdicionales(consulta)} className="p-2 text-orange-600 hover:bg-orange-50 rounded transition-colors" title="Imprimir solo adicionales">
                     <FileText size={18} />
                   </button>
                 )}
-                <button
-                  onClick={() => reimprimirRecibo(consulta)}
-                  className="p-2 text-green-600 hover:bg-green-50 rounded transition-colors"
-                  title="Reimprimir recibo completo"
-                >
+                <button onClick={() => reimprimirRecibo(consulta)} className="p-2 text-green-600 hover:bg-green-50 rounded transition-colors" title="Reimprimir recibo completo">
                   <Printer size={18} />
                 </button>
-                {/* ✅ MODIFICADO: Solicitar autorización para editar */}
-                <button
-                  onClick={() => solicitarEditarPaciente(consulta)}
-                  className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                  title="Editar paciente"
-                >
+                <button onClick={() => solicitarEditarPaciente(consulta)} className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Editar paciente">
                   <Edit2 size={18} />
                 </button>
-                {/* ✅ MODIFICADO: Solicitar autorización para eliminar */}
-                <button
-                  onClick={() => solicitarEliminarConsulta(consulta.id, consulta.numero_paciente, consulta.pacientes.nombre)}
-                  className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                  title="Anular consulta"
-                >
+                <button onClick={() => solicitarEliminarConsulta(consulta.id, consulta.numero_paciente, consulta.pacientes.nombre)} className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors" title="Anular consulta">
                   <Trash2 size={18} />
                 </button>
               </>
@@ -747,14 +745,33 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 <li key={detalle.id} className="p-2 bg-gray-50 rounded hover:bg-gray-100">
                   <div className="flex justify-between items-center gap-2">
                     <span className="flex-1">• {detalle.sub_estudios.nombre}</span>
-                    <span className="font-medium">Q {detalle.precio.toFixed(2)}</span>
-                    {/* ✅ MODIFICADO: Solicitar autorización para eliminar estudio */}
+
+                    {/* ✅ PRECIO + BOTÓN EDITAR PRECIO */}
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium">Q {detalle.precio.toFixed(2)}</span>
+                      {!consulta.anulado && (
+                        <button
+                          onClick={() => solicitarEditarPrecio(
+                            consulta.id,
+                            detalle.id,
+                            detalle.precio,
+                            detalle.sub_estudios.nombre,
+                            consulta.pacientes.nombre
+                          )}
+                          className="p-1 text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                          title="Editar precio"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                      )}
+                    </div>
+
                     {!consulta.anulado && (
                       <button
                         onClick={() => solicitarEliminarEstudio(
-                          consulta.id, 
-                          detalle.id, 
-                          detalle.precio, 
+                          consulta.id,
+                          detalle.id,
+                          detalle.precio,
                           detalle.sub_estudios.nombre,
                           consulta.pacientes.nombre
                         )}
@@ -765,6 +782,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                       </button>
                     )}
                   </div>
+
                   {detalle.comentarios && detalle.comentarios.trim() !== '' && (
                     <div className="text-xs text-gray-600 mt-1 ml-4 p-2 bg-blue-50 rounded">
                       <strong>📝 Comentarios:</strong> {detalle.comentarios}
@@ -779,16 +797,12 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                   )}
                   {detalle.numero_voucher && (
                     <div className="text-xs text-gray-600 mt-1 ml-4">
-                      <span className="bg-green-100 px-2 py-1 rounded">
-                        Voucher: {detalle.numero_voucher}
-                      </span>
+                      <span className="bg-green-100 px-2 py-1 rounded">Voucher: {detalle.numero_voucher}</span>
                     </div>
                   )}
                   {detalle.numero_transferencia && (
                     <div className="text-xs text-gray-600 mt-1 ml-4">
-                      <span className="bg-purple-100 px-2 py-1 rounded">
-                        Transferencia: {detalle.numero_transferencia}
-                      </span>
+                      <span className="bg-purple-100 px-2 py-1 rounded">Transferencia: {detalle.numero_transferencia}</span>
                     </div>
                   )}
                 </li>
@@ -800,22 +814,15 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         <div className="border-t mt-4 pt-4">
           <div className="flex justify-between items-center mb-3">
             <div className="text-sm flex items-center gap-3 flex-wrap">
-              <span className="font-semibold">Forma de Pago:</span> 
+              <span className="font-semibold">Forma de Pago:</span>
               <span>{getFormaPago(consulta.forma_pago)}</span>
               {!consulta.anulado && (
-                <button
-                  onClick={() => abrirEditarFormaPago(consulta)}
-                  className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                  title="Editar forma de pago"
-                >
+                <button onClick={() => abrirEditarFormaPago(consulta)} className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Editar forma de pago">
                   <Edit2 size={14} />
                 </button>
               )}
-              
               {consulta.requiere_factura && (
-                <span>
-                  | <strong>NIT:</strong> {consulta.nit || 'C/F'}
-                </span>
+                <span>| <strong>NIT:</strong> {consulta.nit || 'C/F'}</span>
               )}
             </div>
             <div className="text-right">
@@ -827,82 +834,38 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
             <div className="flex gap-2 flex-wrap">
               {consulta.forma_pago === 'tarjeta' && !consulta.numero_voucher && (
                 <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded px-3 py-2">
-                  <span className="text-yellow-700 font-semibold text-sm">
-                    ⚠️ Voucher Pendiente
-                  </span>
-                  <button
-                    onClick={() => abrirEditarVoucher(consulta)}
-                    className="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 font-semibold"
-                  >
-                    Agregar Voucher
-                  </button>
+                  <span className="text-yellow-700 font-semibold text-sm">⚠️ Voucher Pendiente</span>
+                  <button onClick={() => abrirEditarVoucher(consulta)} className="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 font-semibold">Agregar Voucher</button>
                 </div>
               )}
-
               {consulta.forma_pago === 'transferencia' && !consulta.numero_transferencia && (
                 <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded px-3 py-2">
-                  <span className="text-yellow-700 font-semibold text-sm">
-                    ⚠️ No. Transferencia Pendiente
-                  </span>
-                  <button
-                    onClick={() => abrirEditarVoucher(consulta)}
-                    className="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 font-semibold"
-                  >
-                    Agregar Número
-                  </button>
+                  <span className="text-yellow-700 font-semibold text-sm">⚠️ No. Transferencia Pendiente</span>
+                  <button onClick={() => abrirEditarVoucher(consulta)} className="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 font-semibold">Agregar Número</button>
                 </div>
               )}
-
               {consulta.forma_pago === 'efectivo_facturado' && !consulta.numero_factura && (
                 <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-300 rounded px-3 py-2">
-                  <span className="text-yellow-700 font-semibold text-sm">
-                    ⚠️ No. Factura Pendiente
-                  </span>
-                  <button
-                    onClick={() => abrirEditarVoucher(consulta)}
-                    className="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 font-semibold"
-                  >
-                    Agregar Factura
-                  </button>
+                  <span className="text-yellow-700 font-semibold text-sm">⚠️ No. Factura Pendiente</span>
+                  <button onClick={() => abrirEditarVoucher(consulta)} className="px-3 py-1 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 font-semibold">Agregar Factura</button>
                 </div>
               )}
-
               {consulta.numero_voucher && (
                 <div className="flex items-center gap-2 text-sm bg-green-50 border border-green-300 rounded px-3 py-2">
                   <span><strong>Voucher:</strong> {consulta.numero_voucher}</span>
-                  <button
-                    onClick={() => abrirEditarVoucher(consulta)}
-                    className="p-1 text-green-700 hover:bg-green-200 rounded transition-colors"
-                    title="Editar voucher"
-                  >
-                    <Edit2 size={14} />
-                  </button>
+                  <button onClick={() => abrirEditarVoucher(consulta)} className="p-1 text-green-700 hover:bg-green-200 rounded transition-colors" title="Editar voucher"><Edit2 size={14} /></button>
                 </div>
               )}
-
               {consulta.numero_transferencia && (
                 <div className="flex items-center gap-2 text-sm bg-green-50 border border-green-300 rounded px-3 py-2">
                   <span><strong>Transferencia:</strong> {consulta.numero_transferencia}</span>
-                  <button
-                    onClick={() => abrirEditarVoucher(consulta)}
-                    className="p-1 text-green-700 hover:bg-green-200 rounded transition-colors"
-                    title="Editar número de transferencia"
-                  >
-                    <Edit2 size={14} />
-                  </button>
+                  <button onClick={() => abrirEditarVoucher(consulta)} className="p-1 text-green-700 hover:bg-green-200 rounded transition-colors" title="Editar número de transferencia"><Edit2 size={14} /></button>
                 </div>
               )}
-
               {consulta.numero_factura && (
                 <div className="flex items-center gap-2 text-sm bg-blue-50 border border-blue-300 rounded px-3 py-2">
                   <span><strong>No. Factura:</strong> {consulta.numero_factura}</span>
-                  <button
-                    onClick={() => abrirEditarVoucher(consulta)}
-                    className="p-1 text-blue-700 hover:bg-blue-200 rounded transition-colors"
-                    title="Editar factura y NIT"
-                  >
-                    <Edit2 size={14} />
-                  </button>
+                  <button onClick={() => abrirEditarVoucher(consulta)} className="p-1 text-blue-700 hover:bg-blue-200 rounded transition-colors" title="Editar factura y NIT"><Edit2 size={14} /></button>
                 </div>
               )}
             </div>
@@ -912,6 +875,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
     );
   };
 
+  // ─── RENDER PRINCIPAL ─────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg">
@@ -931,124 +895,66 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
             <Calendar className="text-blue-600" size={24} />
             <div>
               <label className="label">Seleccionar Fecha</label>
-              <input
-                type="date"
-                className="input-field"
-                value={fecha}
-                onChange={(e) => setFecha(e.target.value)}
-              />
+              <input type="date" className="input-field" value={fecha} onChange={(e) => setFecha(e.target.value)} />
             </div>
             <div className="flex-1">
               <label className="label">Buscar por Nombre</label>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Nombre del paciente..."
-                value={filtroBusqueda}
-                onChange={(e) => setFiltroBusqueda(e.target.value)}
-              />
+              <input type="text" className="input-field" placeholder="Nombre del paciente..." value={filtroBusqueda} onChange={(e) => setFiltroBusqueda(e.target.value)} />
             </div>
             <div className="ml-auto flex gap-2">
-              <button 
-                onClick={renumerarTodosPacientes} 
-                className="btn-secondary text-sm"
-                disabled={loading || consultas.length === 0}
-              >
-                🔢 Renumerar
-              </button>
-              <button onClick={cargarConsultas} className="btn-primary">
-                Actualizar
-              </button>
+              <button onClick={renumerarTodosPacientes} className="btn-secondary text-sm" disabled={loading || consultas.length === 0}>🔢 Renumerar</button>
+              <button onClick={cargarConsultas} className="btn-primary">Actualizar</button>
             </div>
           </div>
         </div>
 
+        {/* PESTAÑAS */}
         <div className="mb-6 flex gap-2 border-b border-gray-200">
-          <button
-            onClick={() => setPestanaActiva('regulares')}
-            className={`px-6 py-3 font-medium transition-colors ${
-              pestanaActiva === 'regulares'
-                ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-600 hover:text-blue-600'
-            }`}
-          >
-            👥 Pacientes Regulares
-            <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-              {consultas.filter(c => !c.es_servicio_movil).length}
-            </span>
-          </button>
-          <button
-            onClick={() => setPestanaActiva('moviles')}
-            className={`px-6 py-3 font-medium transition-colors ${
-              pestanaActiva === 'moviles'
-                ? 'border-b-2 border-purple-600 text-purple-600'
-                : 'text-gray-600 hover:text-purple-600'
-            }`}
-          >
-            📱 Servicios Móviles
-            <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-              {consultas.filter(c => c.es_servicio_movil).length}
-            </span>
-          </button>
-          <button
-            onClick={() => setPestanaActiva('todos')}
-            className={`px-6 py-3 font-medium transition-colors ${
-              pestanaActiva === 'todos'
-                ? 'border-b-2 border-gray-600 text-gray-600'
-                : 'text-gray-500 hover:text-gray-600'
-            }`}
-          >
-            📋 Todos
-            <span className="ml-2 text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
-              {consultas.length}
-            </span>
-          </button>
-          <button
-            onClick={() => setPestanaActiva('anuladas')}
-            className={`px-6 py-3 font-medium transition-colors ${
-              pestanaActiva === 'anuladas'
-                ? 'border-b-2 border-red-600 text-red-600'
-                : 'text-gray-500 hover:text-red-600'
-            }`}
-          >
-            🚫 Anuladas
-            <span className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full">
-              {consultasAnuladas.length}
-            </span>
-          </button>
+          {[
+            { key: 'regulares', label: '👥 Pacientes Regulares', count: consultas.filter(c => !c.es_servicio_movil).length, color: 'blue' },
+            { key: 'moviles', label: '📱 Servicios Móviles', count: consultas.filter(c => c.es_servicio_movil).length, color: 'purple' },
+            { key: 'todos', label: '📋 Todos', count: consultas.length, color: 'gray' },
+            { key: 'anuladas', label: '🚫 Anuladas', count: consultasAnuladas.length, color: 'red' },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setPestanaActiva(tab.key as any)}
+              className={`px-6 py-3 font-medium transition-colors ${
+                pestanaActiva === tab.key
+                  ? `border-b-2 border-${tab.color}-600 text-${tab.color}-600`
+                  : `text-gray-600 hover:text-${tab.color}-600`
+              }`}
+            >
+              {tab.label}
+              <span className={`ml-2 text-xs bg-${tab.color}-100 text-${tab.color}-700 px-2 py-1 rounded-full`}>
+                {tab.count}
+              </span>
+            </button>
+          ))}
         </div>
 
         {loading ? (
-          <div className="text-center py-12">
-            <p className="text-lg text-gray-600">Cargando...</p>
-          </div>
+          <div className="text-center py-12"><p className="text-lg text-gray-600">Cargando...</p></div>
         ) : (
           <>
             {pestanaActiva !== 'anuladas' && (
               <>
-                {consultas
-                  .filter(c => {
-                    if (pestanaActiva === 'regulares' && c.es_servicio_movil === true) return false;
-                    if (pestanaActiva === 'moviles' && c.es_servicio_movil !== true) return false;
-                    return c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase());
-                  })
-                  .length === 0 ? (
+                {consultas.filter(c => {
+                  if (pestanaActiva === 'regulares' && c.es_servicio_movil === true) return false;
+                  if (pestanaActiva === 'moviles' && c.es_servicio_movil !== true) return false;
+                  return c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase());
+                }).length === 0 ? (
                   <div className="card text-center py-12">
                     <p className="text-lg text-gray-600">No hay consultas para esta fecha</p>
-                    <p className="text-sm text-gray-500 mt-2">
-                      Selecciona otra fecha o registra una nueva consulta
-                    </p>
+                    <p className="text-sm text-gray-500 mt-2">Selecciona otra fecha o registra una nueva consulta</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {consultas
-                      .filter(c => {
-                        if (pestanaActiva === 'regulares' && c.es_servicio_movil === true) return false;
-                        if (pestanaActiva === 'moviles' && c.es_servicio_movil !== true) return false;
-                        return c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase());
-                      })
-                      .map((consulta, index) => renderConsulta(consulta, index))
-                    }
+                    {consultas.filter(c => {
+                      if (pestanaActiva === 'regulares' && c.es_servicio_movil === true) return false;
+                      if (pestanaActiva === 'moviles' && c.es_servicio_movil !== true) return false;
+                      return c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase());
+                    }).map((consulta, index) => renderConsulta(consulta, index))}
                   </div>
                 )}
               </>
@@ -1060,9 +966,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                   <div className="card text-center py-12 bg-green-50 border-2 border-green-200">
                     <div className="text-5xl mb-4">✅</div>
                     <p className="text-lg font-semibold text-green-700">No hay consultas anuladas</p>
-                    <p className="text-sm text-green-600 mt-2">
-                      ¡Excelente! Todas las consultas del día están activas
-                    </p>
+                    <p className="text-sm text-green-600 mt-2">¡Excelente! Todas las consultas del día están activas</p>
                   </div>
                 ) : (
                   <>
@@ -1071,18 +975,13 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                         <AlertCircle className="text-red-600" size={24} />
                         <div>
                           <h3 className="font-bold text-red-700">Consultas Anuladas</h3>
-                          <p className="text-sm text-red-600">
-                            Total: {consultasAnuladas.length} consulta{consultasAnuladas.length !== 1 ? 's' : ''} anulada{consultasAnuladas.length !== 1 ? 's' : ''}
-                          </p>
+                          <p className="text-sm text-red-600">Total: {consultasAnuladas.length} consulta{consultasAnuladas.length !== 1 ? 's' : ''} anulada{consultasAnuladas.length !== 1 ? 's' : ''}</p>
                         </div>
                       </div>
                     </div>
-                    
                     <div className="space-y-4">
-                      {consultasAnuladas
-                        .filter(c => c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase()))
-                        .map((consulta, index) => renderConsulta(consulta, index))
-                      }
+                      {consultasAnuladas.filter(c => c.pacientes.nombre.toLowerCase().includes(filtroBusqueda.toLowerCase()))
+                        .map((consulta, index) => renderConsulta(consulta, index))}
                     </div>
                   </>
                 )}
@@ -1092,15 +991,12 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
         )}
       </div>
 
+      {/* ── MODALES EXISTENTES ── */}
       {showEditModal && pacienteEditando && consultaSeleccionada && (
         <EditarPacienteModal
           paciente={pacienteEditando}
           consulta={consultaSeleccionada}
-          onClose={() => {
-            setShowEditModal(false);
-            setPacienteEditando(null);
-            setConsultaSeleccionada(null);
-          }}
+          onClose={() => { setShowEditModal(false); setPacienteEditando(null); setConsultaSeleccionada(null); }}
           onSave={handleGuardarPaciente}
         />
       )}
@@ -1108,10 +1004,7 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       {showAgregarEstudioModal && consultaSeleccionada && (
         <AgregarEstudioModal
           consulta={consultaSeleccionada}
-          onClose={() => {
-            setShowAgregarEstudioModal(false);
-            setConsultaSeleccionada(null);
-          }}
+          onClose={() => { setShowAgregarEstudioModal(false); setConsultaSeleccionada(null); }}
           onSave={cargarConsultas}
         />
       )}
@@ -1121,77 +1014,30 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold">
-                {consultaSeleccionada.forma_pago === 'tarjeta' && 
-                  (consultaSeleccionada.numero_voucher ? 'Editar Número de Voucher' : 'Agregar Número de Voucher')}
-                {consultaSeleccionada.forma_pago === 'transferencia' && 
-                  (consultaSeleccionada.numero_transferencia ? 'Editar Número de Transferencia' : 'Agregar Número de Transferencia')}
-                {consultaSeleccionada.forma_pago === 'efectivo_facturado' && 
-                  (consultaSeleccionada.numero_factura ? 'Editar Factura y NIT' : 'Agregar Factura')}
+                {consultaSeleccionada.forma_pago === 'tarjeta' && (consultaSeleccionada.numero_voucher ? 'Editar Número de Voucher' : 'Agregar Número de Voucher')}
+                {consultaSeleccionada.forma_pago === 'transferencia' && (consultaSeleccionada.numero_transferencia ? 'Editar Número de Transferencia' : 'Agregar Número de Transferencia')}
+                {consultaSeleccionada.forma_pago === 'efectivo_facturado' && (consultaSeleccionada.numero_factura ? 'Editar Factura y NIT' : 'Agregar Factura')}
               </h2>
-              <button
-                onClick={() => {
-                  setShowEditVoucherModal(false);
-                  setConsultaSeleccionada(null);
-                  setVoucherEditando('');
-                  setNitEditando('');
-                }}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X size={24} />
-              </button>
+              <button onClick={() => { setShowEditVoucherModal(false); setConsultaSeleccionada(null); setVoucherEditando(''); setNitEditando(''); }} className="text-gray-500 hover:text-gray-700"><X size={24} /></button>
             </div>
-
             <div className="mb-4">
               <label className="label">
                 {consultaSeleccionada.forma_pago === 'tarjeta' && 'Número de Voucher *'}
                 {consultaSeleccionada.forma_pago === 'transferencia' && 'Número de Transferencia *'}
                 {consultaSeleccionada.forma_pago === 'efectivo_facturado' && 'Número de Factura *'}
               </label>
-              <input
-                type="text"
-                className="input-field"
-                placeholder={
-                  consultaSeleccionada.forma_pago === 'efectivo_facturado' 
-                    ? 'Ej: 1234567' 
-                    : 'Ej: 1234567890'
-                }
-                value={voucherEditando}
-                onChange={(e) => setVoucherEditando(e.target.value)}
-                autoFocus
-              />
+              <input type="text" className="input-field" placeholder={consultaSeleccionada.forma_pago === 'efectivo_facturado' ? 'Ej: 1234567' : 'Ej: 1234567890'} value={voucherEditando} onChange={(e) => setVoucherEditando(e.target.value)} autoFocus />
             </div>
-
             {consultaSeleccionada.forma_pago === 'efectivo_facturado' && (
               <div className="mb-4">
                 <label className="label">NIT (dejar vacío para C/F)</label>
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder="Ej: 12345678 o dejar vacío"
-                  value={nitEditando}
-                  onChange={(e) => setNitEditando(e.target.value)}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Si se deja vacío, se guardará como "C/F"
-                </p>
+                <input type="text" className="input-field" placeholder="Ej: 12345678 o dejar vacío" value={nitEditando} onChange={(e) => setNitEditando(e.target.value)} />
+                <p className="text-xs text-gray-500 mt-1">Si se deja vacío, se guardará como "C/F"</p>
               </div>
             )}
-
             <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => {
-                  setShowEditVoucherModal(false);
-                  setConsultaSeleccionada(null);
-                  setVoucherEditando('');
-                  setNitEditando('');
-                }}
-                className="btn-secondary"
-              >
-                Cancelar
-              </button>
-              <button onClick={guardarVoucher} className="btn-primary">
-                Guardar
-              </button>
+              <button onClick={() => { setShowEditVoucherModal(false); setConsultaSeleccionada(null); setVoucherEditando(''); setNitEditando(''); }} className="btn-secondary">Cancelar</button>
+              <button onClick={guardarVoucher} className="btn-primary">Guardar</button>
             </div>
           </div>
         </div>
@@ -1202,50 +1048,18 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold">Editar Forma de Pago</h2>
-              <button
-                onClick={() => {
-                  setShowEditFormaPagoModal(false);
-                  setConsultaSeleccionada(null);
-                  setFormaPagoEditando('');
-                  setRequiereFacturaEditando(false);
-                }}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X size={24} />
-              </button>
+              <button onClick={() => { setShowEditFormaPagoModal(false); setConsultaSeleccionada(null); setFormaPagoEditando(''); setRequiereFacturaEditando(false); }} className="text-gray-500 hover:text-gray-700"><X size={24} /></button>
             </div>
-
             <div className="mb-4">
               <label className="label">¿Requiere Factura?</label>
               <div className="flex gap-4">
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    checked={requiereFacturaEditando}
-                    onChange={() => setRequiereFacturaEditando(true)}
-                    className="mr-2"
-                  />
-                  Sí
-                </label>
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    checked={!requiereFacturaEditando}
-                    onChange={() => setRequiereFacturaEditando(false)}
-                    className="mr-2"
-                  />
-                  No
-                </label>
+                <label className="flex items-center"><input type="radio" checked={requiereFacturaEditando} onChange={() => setRequiereFacturaEditando(true)} className="mr-2" />Sí</label>
+                <label className="flex items-center"><input type="radio" checked={!requiereFacturaEditando} onChange={() => setRequiereFacturaEditando(false)} className="mr-2" />No</label>
               </div>
             </div>
-
             <div className="mb-4">
               <label className="label">Forma de Pago *</label>
-              <select
-                className="input-field"
-                value={formaPagoEditando}
-                onChange={(e) => setFormaPagoEditando(e.target.value)}
-              >
+              <select className="input-field" value={formaPagoEditando} onChange={(e) => setFormaPagoEditando(e.target.value)}>
                 <option value="">Seleccione...</option>
                 {requiereFacturaEditando ? (
                   <>
@@ -1263,28 +1077,12 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
                 )}
               </select>
             </div>
-
             <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-4 text-sm">
-              <p className="text-yellow-800">
-                <strong>Nota:</strong> Al cambiar la forma de pago, se eliminarán los números de voucher/factura/transferencia anteriores si no aplican.
-              </p>
+              <p className="text-yellow-800"><strong>Nota:</strong> Al cambiar la forma de pago, se eliminarán los números de voucher/factura/transferencia anteriores si no aplican.</p>
             </div>
-
             <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => {
-                  setShowEditFormaPagoModal(false);
-                  setConsultaSeleccionada(null);
-                  setFormaPagoEditando('');
-                  setRequiereFacturaEditando(false);
-                }}
-                className="btn-secondary"
-              >
-                Cancelar
-              </button>
-              <button onClick={guardarFormaPago} className="btn-primary">
-                Guardar Cambios
-              </button>
+              <button onClick={() => { setShowEditFormaPagoModal(false); setConsultaSeleccionada(null); setFormaPagoEditando(''); setRequiereFacturaEditando(false); }} className="btn-secondary">Cancelar</button>
+              <button onClick={guardarFormaPago} className="btn-primary">Guardar Cambios</button>
             </div>
           </div>
         </div>
@@ -1293,46 +1091,117 @@ export const PacientesPage: React.FC<PacientesPageProps> = ({ onBack }) => {
       {showModalTipoRecibo && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4 text-center">
-              ¿Qué recibo desea imprimir?
-            </h2>
-            
-            <p className="text-gray-600 text-sm mb-6 text-center">
-              Seleccione el tipo de recibo que desea generar
-            </p>
-
+            <h2 className="text-xl font-bold text-gray-800 mb-4 text-center">¿Qué recibo desea imprimir?</h2>
+            <p className="text-gray-600 text-sm mb-6 text-center">Seleccione el tipo de recibo que desea generar</p>
             <div className="space-y-3">
-              <button
-                onClick={() => imprimirReciboSeleccionado('completo')}
-                className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-between"
-              >
-                <span>📄 Recibo Completo</span>
-                <span className="text-sm opacity-90">(con precios)</span>
+              <button onClick={() => imprimirReciboSeleccionado('completo')} className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-between">
+                <span>📄 Recibo Completo</span><span className="text-sm opacity-90">(con precios)</span>
               </button>
-
-              <button
-                onClick={() => imprimirReciboSeleccionado('medico')}
-                className="w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-between"
-              >
-                <span>🩺 Orden para Médico</span>
-                <span className="text-sm opacity-90">(sin precios)</span>
+              <button onClick={() => imprimirReciboSeleccionado('medico')} className="w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-between">
+                <span>🩺 Orden para Médico</span><span className="text-sm opacity-90">(sin precios)</span>
               </button>
+              <button onClick={() => { setShowModalTipoRecibo(false); setDatosReciboTemp(null); }} className="w-full py-3 px-6 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-semibold transition-colors">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* ── ✅ NUEVO: Modal Editar Precio (aparece DESPUÉS de validar token) ── */}
+      {showEditPrecioModal && accionPendiente?.tipo === 'editar_precio' && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            {/* Encabezado */}
+            <div className="flex justify-between items-center mb-1">
+              <h2 className="text-xl font-bold text-gray-800">✏️ Editar Precio</h2>
               <button
                 onClick={() => {
-                  setShowModalTipoRecibo(false);
-                  setDatosReciboTemp(null);
+                  setShowEditPrecioModal(false);
+                  setNuevoPrecio('');
+                  setJustificacionPrecio('');
+                  setAccionPendiente(null);
                 }}
-                className="w-full py-3 px-6 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-semibold transition-colors"
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Info del estudio */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-5 text-sm">
+              <p className="font-semibold text-amber-800">{accionPendiente.datos.nombreEstudio}</p>
+              <p className="text-amber-700 mt-0.5">
+                Paciente: {accionPendiente.datos.nombrePaciente}
+              </p>
+              <p className="text-amber-700 mt-0.5">
+                Precio actual: <strong>Q {accionPendiente.datos.precioActual.toFixed(2)}</strong>
+              </p>
+            </div>
+
+            {/* Nuevo precio */}
+            <div className="mb-4">
+              <label className="label">Nuevo Precio (Q) *</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="input-field text-lg font-semibold"
+                placeholder="0.00"
+                value={nuevoPrecio}
+                onChange={(e) => setNuevoPrecio(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            {/* Justificación */}
+            <div className="mb-5">
+              <label className="label">
+                Justificación <span className="text-red-500">*</span>
+                <span className="ml-1 text-xs font-normal text-gray-500">(obligatorio para auditoría)</span>
+              </label>
+              <textarea
+                className="input-field resize-none"
+                rows={3}
+                placeholder="Ej: Error de cobro, precio de convenio, descuento autorizado por gerencia..."
+                value={justificacionPrecio}
+                onChange={(e) => setJustificacionPrecio(e.target.value)}
+                maxLength={300}
+              />
+              <p className="text-xs text-gray-400 text-right mt-1">{justificacionPrecio.length}/300</p>
+            </div>
+
+            {/* Advertencia */}
+            <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-5 text-xs text-yellow-800 flex gap-2">
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5 text-yellow-600" />
+              <span>
+                Este cambio quedará registrado en el log de auditoría con su nombre de usuario, fecha y justificación.
+              </span>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowEditPrecioModal(false);
+                  setNuevoPrecio('');
+                  setJustificacionPrecio('');
+                  setAccionPendiente(null);
+                }}
+                className="btn-secondary"
               >
                 Cancelar
+              </button>
+              <button
+                onClick={guardarNuevoPrecio}
+                disabled={!nuevoPrecio || !justificacionPrecio.trim()}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Guardar Precio
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ✅ NUEVO: Modal de Autorización */}
+      {/* ── Modal de Autorización (token) ── */}
       {mostrarAutorizacion && accionPendiente && (
         <AutorizacionModal
           accion={getNombreAccion()}
