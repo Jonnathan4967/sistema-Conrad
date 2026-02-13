@@ -469,8 +469,43 @@ export const CuadreDiarioPage: React.FC<CuadreDiarioPageProps> = ({ onBack }) =>
     if (!pinCierre.trim()) { alert('⚠️ Debe ingresar el PIN de autorización'); return; }
 
     try {
+      // ✅ CORREGIDO: Guardar en Supabase con cerrado=true ANTES de descargar
+      const cuadreData = {
+        fecha,
+        billetes_200: parseInt(billetes.b200) || 0,
+        billetes_100: parseInt(billetes.b100) || 0,
+        billetes_50: parseInt(billetes.b50) || 0,
+        billetes_20: parseInt(billetes.b20) || 0,
+        billetes_10: parseInt(billetes.b10) || 0,
+        billetes_5: parseInt(billetes.b5) || 0,
+        billetes_1: parseInt(billetes.b1) || 0,
+        monedas_1: parseInt(monedas.m1) || 0,
+        monedas_050: parseInt(monedas.m050) || 0,
+        monedas_025: parseInt(monedas.m025) || 0,
+        monedas_010: parseInt(monedas.m010) || 0,
+        monedas_005: parseInt(monedas.m005) || 0,
+        monedas_001: parseInt(monedas.m001) || 0,
+        tarjeta_contado: parseFloat(tarjetaContado) || 0,
+        transferencia_contado: parseFloat(transferenciaContado) || 0,
+        estado_cuenta_contado: parseFloat(estadoCuentaContado) || 0,
+        observaciones,
+        validado: true,
+        nombre_cajero: nombreCajero,
+        pin_cierre: pinCierre,
+        cerrado: true  // ✅ Marcar como cerrado en la BD
+      };
+
+      const { error } = await supabase
+        .from('cuadres_diarios')
+        .upsert(cuadreData, { onConflict: 'fecha' });
+
+      if (error) throw error;
+
+      // ✅ Actualizar estado local después de guardar exitosamente
       setCuadreCerrado(true);
-      alert('✅ Cierre de caja confirmado exitosamente');
+      setCuadreValidado(true);
+
+      alert('✅ Cierre de caja confirmado y guardado exitosamente');
       await descargarCuadre('csv');
     } catch (error) {
       console.error('Error al confirmar cierre:', error);

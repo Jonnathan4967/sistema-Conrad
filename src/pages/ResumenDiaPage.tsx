@@ -26,39 +26,42 @@ interface ResumenDiaPageProps {
 }
 
 interface ResumenDatos {
-  // Pacientes
   pacientesNuevos: number;
   consultasRegulares: number;
   consultasMoviles: number;
   totalConsultas: number;
-  
-  // Financiero
   ingresosConsultas: number;
   ingresosMoviles: number;
   totalIngresos: number;
   gastosDelDia: number;
   ingresoNeto: number;
-  
-  // Inventario
   productosAgregados: number;
   productosEditados: number;
   productosEliminados: number;
-  
-  // Actividad
   usuariosActivos: string[];
   accionesConAutorizacion: number;
-  
-  // Logs recientes
   actividadReciente: any[];
 }
 
 export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
-  const [fecha, setFecha] = useState(() => {
+
+  // ✅ CORREGIDO: Helper para obtener fecha/hora en zona horaria de Guatemala
+  const getGuatemalaTime = () => {
     const ahora = new Date();
-    const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
-    return guatemalaTime.toISOString().split('T')[0];
-  });
-  
+    return new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
+  };
+
+  const getFechaGuatemala = () => {
+    const gt = getGuatemalaTime();
+    const yyyy = gt.getFullYear();
+    const mm = String(gt.getMonth() + 1).padStart(2, '0');
+    const dd = String(gt.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  // ✅ CORREGIDO: Inicializar con fecha de Guatemala (no UTC)
+  const [fecha, setFecha] = useState(getFechaGuatemala);
+
   const [resumen, setResumen] = useState<ResumenDatos>({
     pacientesNuevos: 0,
     consultasRegulares: 0,
@@ -76,7 +79,7 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
     accionesConAutorizacion: 0,
     actividadReciente: []
   });
-  
+
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -86,7 +89,6 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
   const cargarResumen = async () => {
     setLoading(true);
     try {
-      // Consultas del día
       const { data: consultas } = await supabase
         .from('consultas')
         .select(`
@@ -100,19 +102,16 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
       const consultasRegulares = consultas?.filter(c => !c.es_servicio_movil) || [];
       const consultasMoviles = consultas?.filter(c => c.es_servicio_movil) || [];
 
-      // Calcular ingresos
-      const ingresosConsultas = consultasRegulares.reduce((sum, c) => 
+      const ingresosConsultas = consultasRegulares.reduce((sum, c) =>
         sum + c.detalle_consultas.reduce((s: number, d: any) => s + d.precio, 0), 0
       );
 
-      const ingresosMoviles = consultasMoviles.reduce((sum, c) => 
+      const ingresosMoviles = consultasMoviles.reduce((sum, c) =>
         sum + c.detalle_consultas.reduce((s: number, d: any) => s + d.precio, 0), 0
       );
 
-      // Pacientes únicos nuevos del día
       const pacientesIds = new Set(consultas?.map(c => c.paciente_id));
 
-      // Gastos del día
       const { data: gastos } = await supabase
         .from('gastos')
         .select('monto')
@@ -120,7 +119,6 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
 
       const gastosDelDia = gastos?.reduce((sum, g) => sum + g.monto, 0) || 0;
 
-      // Log de actividad
       const { data: logs } = await supabase
         .from('log_actividad')
         .select('*')
@@ -128,15 +126,10 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
         .order('created_at', { ascending: false })
         .limit(50);
 
-      // Usuarios activos
-      const usuariosActivos = [...new Set(logs?.map(l => l.nombre_usuario) || [])];
-
-      // Acciones con autorización
+      const usuariosActivos = [...new Set(logs?.map(l => l.nombre_usuario) || [])] as string[];
       const accionesConAutorizacion = logs?.filter(l => l.requirio_autorizacion).length || 0;
-
-      // Actividad de inventario
-      const productosAgregados = logs?.filter(l => l.modulo === 'inventario' && l.accion === 'crear').length || 0;
-      const productosEditados = logs?.filter(l => l.modulo === 'inventario' && l.accion === 'editar').length || 0;
+      const productosAgregados  = logs?.filter(l => l.modulo === 'inventario' && l.accion === 'crear').length || 0;
+      const productosEditados   = logs?.filter(l => l.modulo === 'inventario' && l.accion === 'editar').length || 0;
       const productosEliminados = logs?.filter(l => l.modulo === 'inventario' && l.accion === 'eliminar').length || 0;
 
       setResumen({
@@ -167,37 +160,26 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
 
   const descargarExcelCuadre = async () => {
     try {
-      // Cargar cuadre guardado
       const { data: cuadreGuardado, error } = await supabase
         .from('cuadres_diarios')
         .select('*')
         .eq('fecha', fecha)
         .maybeSingle();
 
-      if (error) {
-        alert('❌ Error al cargar cuadre guardado');
-        return;
-      }
+      if (error) { alert('❌ Error al cargar cuadre guardado'); return; }
+      if (!cuadreGuardado) { alert('⚠️ No hay cuadre guardado para esta fecha'); return; }
 
-      if (!cuadreGuardado) {
-        alert('⚠️ No hay cuadre guardado para esta fecha');
-        return;
-      }
-
-      // Cargar consultas para obtener cuadres por forma de pago
       const { data: consultas } = await supabase
         .from('consultas')
         .select('*, detalle_consultas(precio)')
         .eq('fecha', fecha)
         .or('anulado.is.null,anulado.eq.false');
 
-      // Calcular cuadres por forma de pago
       const cuadrePorForma: any = {};
-      
-      const consultasRegulares = consultas?.filter(c => !c.es_servicio_movil) || [];
-      const consultasMoviles = consultas?.filter(c => c.es_servicio_movil) || [];
 
-      // Procesar regulares
+      const consultasRegulares = consultas?.filter(c => !c.es_servicio_movil) || [];
+      const consultasMoviles   = consultas?.filter(c => c.es_servicio_movil)  || [];
+
       consultasRegulares.forEach((c: any) => {
         const total = c.detalle_consultas?.reduce((sum: number, d: any) => sum + d.precio, 0) || 0;
         const forma = c.forma_pago;
@@ -208,7 +190,6 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
         cuadrePorForma[forma].total += total;
       });
 
-      // Procesar móviles
       consultasMoviles.forEach((c: any) => {
         const total = c.detalle_consultas?.reduce((sum: number, d: any) => sum + d.precio, 0) || 0;
         const forma = c.forma_pago;
@@ -220,26 +201,37 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
         cuadrePorForma[key].total += total;
       });
 
-      // Calcular totales
-      const efectivoTotal = cuadrePorForma['efectivo']?.total || 0;
-      const tarjetaTotal = cuadrePorForma['tarjeta']?.total || 0;
-      const transferenciaTotal = (cuadrePorForma['efectivo_facturado']?.total || 0) + 
-                                  (cuadrePorForma['transferencia']?.total || 0);
+      const efectivoTotal      = cuadrePorForma['efectivo']?.total || 0;
+      const tarjetaTotal       = cuadrePorForma['tarjeta']?.total  || 0;
+      const transferenciaTotal = (cuadrePorForma['efectivo_facturado']?.total || 0) +
+                                 (cuadrePorForma['transferencia']?.total       || 0);
 
       const diferencias = {
-        efectivo: cuadreGuardado.efectivo_contado - efectivoTotal,
-        tarjeta: cuadreGuardado.tarjeta_contado - tarjetaTotal,
-        depositado: cuadreGuardado.transferencia_contado - transferenciaTotal
+        efectivo:   cuadreGuardado.efectivo_contado      - efectivoTotal,
+        tarjeta:    cuadreGuardado.tarjeta_contado        - tarjetaTotal,
+        depositado: cuadreGuardado.transferencia_contado  - transferenciaTotal
       };
 
-      const cuadreCorrecto = Math.abs(diferencias.efectivo) < 0.01 &&
-                             Math.abs(diferencias.tarjeta) < 0.01 &&
-                             Math.abs(diferencias.depositado) < 0.01;
+      const cuadreCorrecto =
+        Math.abs(diferencias.efectivo)   < 0.01 &&
+        Math.abs(diferencias.tarjeta)    < 0.01 &&
+        Math.abs(diferencias.depositado) < 0.01;
 
-      // Generar Excel
+      // ✅ CORREGIDO: Formatear fecha sin conversión UTC
+      // Parsear directamente del string yyyy-MM-dd para evitar el bug de zona horaria
+      const [yyyy, mm, dd] = fecha.split('-');
+      const fechaFormateada = `${dd}/${mm}/${yyyy}`;
+
+      // ✅ CORREGIDO: Hora actual en Guatemala
+      const horaActual = getGuatemalaTime().toLocaleTimeString('es-GT', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+
       await generarCuadreExcel({
-        fecha: new Date(fecha).toLocaleDateString('es-GT'),
-        horaActual: new Date().toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' }),
+        fecha: fechaFormateada,
+        horaActual,
         totalConsultas: consultas?.length || 0,
         totalVentas: resumen.totalIngresos,
         efectivoEsperado: efectivoTotal,
@@ -280,21 +272,21 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
 
   const getIconoAccion = (accion: string) => {
     switch (accion.toLowerCase()) {
-      case 'crear': return <PlusCircle className="text-green-600" size={16} />;
-      case 'editar': return <Edit className="text-blue-600" size={16} />;
-      case 'eliminar': return <Trash2 className="text-red-600" size={16} />;
-      default: return <Activity className="text-gray-600" size={16} />;
+      case 'crear':   return <PlusCircle className="text-green-600" size={16} />;
+      case 'editar':  return <Edit       className="text-blue-600"  size={16} />;
+      case 'eliminar':return <Trash2     className="text-red-600"   size={16} />;
+      default:        return <Activity   className="text-gray-600"  size={16} />;
     }
   };
 
   const getColorModulo = (modulo: string) => {
     const colores: { [key: string]: string } = {
-      'sanatorio': 'bg-blue-100 text-blue-700',
-      'inventario': 'bg-green-100 text-green-700',
-      'contabilidad': 'bg-purple-100 text-purple-700',
-      'personal': 'bg-orange-100 text-orange-700',
-      'doctores': 'bg-indigo-100 text-indigo-700',
-      'sistema': 'bg-gray-100 text-gray-700'
+      'sanatorio':     'bg-blue-100 text-blue-700',
+      'inventario':    'bg-green-100 text-green-700',
+      'contabilidad':  'bg-purple-100 text-purple-700',
+      'personal':      'bg-orange-100 text-orange-700',
+      'doctores':      'bg-indigo-100 text-indigo-700',
+      'sistema':       'bg-gray-100 text-gray-700'
     };
     return colores[modulo] || 'bg-gray-100 text-gray-700';
   };
@@ -304,10 +296,7 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
       {/* Header */}
       <header className="bg-gradient-to-r from-indigo-600 to-purple-700 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-6">
-          <button 
-            onClick={onBack} 
-            className="text-white hover:text-indigo-100 mb-4 flex items-center gap-2"
-          >
+          <button onClick={onBack} className="text-white hover:text-indigo-100 mb-4 flex items-center gap-2">
             <ArrowLeft size={20} />
             Volver al Dashboard
           </button>
@@ -332,7 +321,6 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* ✅ NUEVO: Botón descargar Excel */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <Calendar className="text-blue-600" size={24} />
@@ -343,7 +331,6 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
               onChange={(e) => setFecha(e.target.value)}
             />
           </div>
-          
           <button
             onClick={descargarExcelCuadre}
             className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 transition-colors"
@@ -431,24 +418,15 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between items-center">
-                    <span className="flex items-center gap-2">
-                      <PlusCircle size={16} className="text-green-600" />
-                      Agregados:
-                    </span>
+                    <span className="flex items-center gap-2"><PlusCircle size={16} className="text-green-600" />Agregados:</span>
                     <span className="font-bold">{resumen.productosAgregados}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="flex items-center gap-2">
-                      <Edit size={16} className="text-blue-600" />
-                      Editados:
-                    </span>
+                    <span className="flex items-center gap-2"><Edit size={16} className="text-blue-600" />Editados:</span>
                     <span className="font-bold">{resumen.productosEditados}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="flex items-center gap-2">
-                      <Trash2 size={16} className="text-red-600" />
-                      Eliminados:
-                    </span>
+                    <span className="flex items-center gap-2"><Trash2 size={16} className="text-red-600" />Eliminados:</span>
                     <span className="font-bold">{resumen.productosEliminados}</span>
                   </div>
                 </div>
@@ -481,10 +459,7 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   {resumen.usuariosActivos.map((usuario, idx) => (
-                    <span 
-                      key={idx}
-                      className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-medium"
-                    >
+                    <span key={idx} className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-medium">
                       {usuario}
                     </span>
                   ))}
@@ -500,7 +475,7 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
                   Actividad Reciente (Últimas 20 acciones)
                 </h3>
               </div>
-              
+
               <div className="max-h-96 overflow-y-auto">
                 {resumen.actividadReciente.length === 0 ? (
                   <div className="p-8 text-center text-gray-500">
@@ -513,9 +488,7 @@ export const ResumenDiaPage: React.FC<ResumenDiaPageProps> = ({ onBack }) => {
                       <div key={idx} className="p-4 hover:bg-gray-50 transition-colors">
                         <div className="flex items-start justify-between">
                           <div className="flex items-start gap-3 flex-1">
-                            <div className="mt-1">
-                              {getIconoAccion(log.accion)}
-                            </div>
+                            <div className="mt-1">{getIconoAccion(log.accion)}</div>
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
                                 <span className="font-medium text-gray-900">{log.nombre_usuario}</span>

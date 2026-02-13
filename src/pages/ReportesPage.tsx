@@ -11,25 +11,41 @@ interface ReportesPageProps {
 }
 
 export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
+  // ✅ CORREGIDO: Obtener fecha/mes/año en zona horaria de Guatemala (GMT-6)
+  const getGuatemalaDate = () => {
+    const ahora = new Date();
+    const guatemalaTime = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Guatemala' }));
+    return guatemalaTime;
+  };
+
+  const getFechaGuatemala = () => {
+    const gt = getGuatemalaDate();
+    const yyyy = gt.getFullYear();
+    const mm = String(gt.getMonth() + 1).padStart(2, '0');
+    const dd = String(gt.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   const [generando, setGenerando] = useState(false);
-  const [tipoReporte, setTipoReporte] = useState<'dia' | 'mes'>('dia'); // ✅ Eliminado 'rango'
-  const [fechaUnica, setFechaUnica] = useState(new Date().toISOString().split('T')[0]);
-  const [fechaInicio, setFechaInicio] = useState(new Date().toISOString().split('T')[0]);
-  const [fechaFin, setFechaFin] = useState(new Date().toISOString().split('T')[0]);
-  const [mes, setMes] = useState(new Date().getMonth() + 1);
-  const [anio, setAnio] = useState(new Date().getFullYear());
+  const [tipoReporte, setTipoReporte] = useState<'dia' | 'mes'>('dia');
+
+  // ✅ CORREGIDO: Inicializar con fecha de Guatemala
+  const [fechaUnica, setFechaUnica] = useState(getFechaGuatemala());
+  const [mes, setMes] = useState(getGuatemalaDate().getMonth() + 1);
+  const [anio, setAnio] = useState(getGuatemalaDate().getFullYear());
+
   const { toast, showToast, hideToast } = useToast();
 
   const meses = [
-    { value: 1, label: 'Enero' },
-    { value: 2, label: 'Febrero' },
-    { value: 3, label: 'Marzo' },
-    { value: 4, label: 'Abril' },
-    { value: 5, label: 'Mayo' },
-    { value: 6, label: 'Junio' },
-    { value: 7, label: 'Julio' },
-    { value: 8, label: 'Agosto' },
-    { value: 9, label: 'Septiembre' },
+    { value: 1,  label: 'Enero' },
+    { value: 2,  label: 'Febrero' },
+    { value: 3,  label: 'Marzo' },
+    { value: 4,  label: 'Abril' },
+    { value: 5,  label: 'Mayo' },
+    { value: 6,  label: 'Junio' },
+    { value: 7,  label: 'Julio' },
+    { value: 8,  label: 'Agosto' },
+    { value: 9,  label: 'Septiembre' },
     { value: 10, label: 'Octubre' },
     { value: 11, label: 'Noviembre' },
     { value: 12, label: 'Diciembre' }
@@ -48,11 +64,11 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
       if (tipoReporte === 'dia') {
         primerDia = fechaUnica;
         ultimoDia = fechaUnica;
-        const fecha = new Date(fechaUnica);
-        mesReporte = fecha.getMonth() + 1;
-        anioReporte = fecha.getFullYear();
+        // ✅ Parsear la fecha seleccionada sin conversión UTC
+        const [yyyy, mm] = fechaUnica.split('-').map(Number);
+        mesReporte = mm;
+        anioReporte = yyyy;
       } else {
-        // Mes completo
         primerDia = new Date(anio, mes - 1, 1).toISOString().split('T')[0];
         ultimoDia = new Date(anio, mes, 0).toISOString().split('T')[0];
         mesReporte = mes;
@@ -81,15 +97,12 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
         .gte('fecha', primerDia)
         .lte('fecha', ultimoDia)
         .order('fecha', { ascending: true })
-        .order('created_at', { ascending: true }); // ✅ Ordenar por hora de llegada
+        .order('created_at', { ascending: true });
 
       if (error) throw error;
 
-      // ✅ Filtrar consultas anuladas Y servicios móviles
       const consultas = consultasRaw?.filter(c => {
-        const esAnulada = c.anulado === true;
-        const esMovil = c.es_servicio_movil === true;
-        return !esAnulada && !esMovil;
+        return c.anulado !== true && c.es_servicio_movil !== true;
       }) || [];
 
       if (!consultas || consultas.length === 0) {
@@ -99,14 +112,13 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
       }
 
       showToast('Generando archivo Excel...', 'info');
-      
-      // ✅ Usar reporte unificado para mes completo, normal para un día
+
       if (tipoReporte === 'mes') {
         await generarReporteMensualUnificado(mesReporte, anioReporte, consultas);
       } else {
         await generarReporteExcel(mesReporte, anioReporte, consultas);
       }
-      
+
       showToast('¡Reporte generado y descargado exitosamente!', 'success');
     } catch (error) {
       console.error('Error:', error);
@@ -121,16 +133,19 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
     try {
       showToast('Obteniendo servicios móviles...', 'info');
 
-      let primerDia: string, ultimoDia: string, mesReporte: number, anioReporte: number;
+      let primerDia: string;
+      let ultimoDia: string;
+      let mesReporte: number;
+      let anioReporte: number;
 
       if (tipoReporte === 'dia') {
         primerDia = fechaUnica;
         ultimoDia = fechaUnica;
-        const fecha = new Date(fechaUnica);
-        mesReporte = fecha.getMonth() + 1;
-        anioReporte = fecha.getFullYear();
+        // ✅ Parsear la fecha seleccionada sin conversión UTC
+        const [yyyy, mm] = fechaUnica.split('-').map(Number);
+        mesReporte = mm;
+        anioReporte = yyyy;
       } else {
-        // Mes completo
         primerDia = new Date(anio, mes - 1, 1).toISOString().split('T')[0];
         ultimoDia = new Date(anio, mes, 0).toISOString().split('T')[0];
         mesReporte = mes;
@@ -160,7 +175,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
         .lte('fecha', ultimoDia)
         .eq('es_servicio_movil', true)
         .order('fecha', { ascending: true })
-        .order('created_at', { ascending: true }); // ✅ Ordenar por hora de llegada
+        .order('created_at', { ascending: true });
 
       if (error) throw error;
 
@@ -216,9 +231,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
                 <Calendar className="text-blue-600 mt-1" size={20} />
                 <div>
                   <h3 className="font-semibold text-gray-800 mb-1">Flexible</h3>
-                  <p className="text-sm text-gray-600">
-                    Un día, varios días, o mes completo
-                  </p>
+                  <p className="text-sm text-gray-600">Un día, varios días, o mes completo</p>
                 </div>
               </div>
             </div>
@@ -228,9 +241,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
                 <FileSpreadsheet className="text-purple-600 mt-1" size={20} />
                 <div>
                   <h3 className="font-semibold text-gray-800 mb-1">Profesional</h3>
-                  <p className="text-sm text-gray-600">
-                    Colores, bordes, totales automáticos
-                  </p>
+                  <p className="text-sm text-gray-600">Colores, bordes, totales automáticos</p>
                 </div>
               </div>
             </div>
@@ -240,9 +251,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
                 <Download className="text-green-600 mt-1" size={20} />
                 <div>
                   <h3 className="font-semibold text-gray-800 mb-1">Descarga inmediata</h3>
-                  <p className="text-sm text-gray-600">
-                    Se genera y descarga al instante
-                  </p>
+                  <p className="text-sm text-gray-600">Se genera y descarga al instante</p>
                 </div>
               </div>
             </div>
@@ -252,9 +261,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
                 <Calendar className="text-orange-600 mt-1" size={20} />
                 <div>
                   <h3 className="font-semibold text-gray-800 mb-1">Una hoja por día</h3>
-                  <p className="text-sm text-gray-600">
-                    Cada día tiene su propia pestaña
-                  </p>
+                  <p className="text-sm text-gray-600">Cada día tiene su propia pestaña</p>
                 </div>
               </div>
             </div>
@@ -262,7 +269,7 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
 
           <div className="border-t pt-6">
             <h3 className="font-bold text-gray-800 mb-4">Selecciona el tipo de reporte</h3>
-            
+
             <div className="grid grid-cols-2 gap-4 mb-6">
               <button
                 onClick={() => setTipoReporte('dia')}
@@ -315,7 +322,6 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
                     ))}
                   </select>
                 </div>
-
                 <div>
                   <label className="label">Año</label>
                   <select
@@ -331,7 +337,6 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
               </div>
             )}
 
-            {/* ✅ BOTONES ACTUALIZADOS */}
             <div className="space-y-3">
               <button
                 onClick={handleGenerarReporte}
@@ -339,15 +344,9 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
                 className="w-full btn-primary flex items-center justify-center gap-2 py-3 text-lg"
               >
                 {generando ? (
-                  <>
-                    <LoadingSpinner />
-                    Generando reporte...
-                  </>
+                  <><LoadingSpinner />Generando reporte...</>
                 ) : (
-                  <>
-                    <Download size={24} />
-                    📋 Generar Reporte Regular
-                  </>
+                  <><Download size={24} />📋 Generar Reporte Regular</>
                 )}
               </button>
 
@@ -357,15 +356,9 @@ export const ReportesPage: React.FC<ReportesPageProps> = ({ onBack }) => {
                 className="w-full bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg flex items-center justify-center gap-2 py-3 text-lg transition-colors disabled:bg-gray-400"
               >
                 {generando ? (
-                  <>
-                    <LoadingSpinner />
-                    Generando móviles...
-                  </>
+                  <><LoadingSpinner />Generando móviles...</>
                 ) : (
-                  <>
-                    <Download size={24} />
-                    📱 Generar Reporte Servicios Móviles
-                  </>
+                  <><Download size={24} />📱 Generar Reporte Servicios Móviles</>
                 )}
               </button>
             </div>

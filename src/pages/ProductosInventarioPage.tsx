@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Search, Edit, Eye, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Search, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { ProductoInventario, CategoriaInventario } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { Toast } from '../components/Toast';
 import { useToast } from '../hooks';
-import { ConfirmDialog } from '../components/ConfirmDialog';
 
 interface ProductosInventarioPageProps {
   onBack: () => void;
@@ -17,8 +16,6 @@ export const ProductosInventarioPage: React.FC<ProductosInventarioPageProps> = (
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoriaFiltro, setCategoriaFiltro] = useState('todas');
-  const [showModal, setShowModal] = useState(false);
-  const [productoSeleccionado, setProductoSeleccionado] = useState<any>(null);
   const { toast, showToast, hideToast } = useToast();
 
   useEffect(() => {
@@ -60,16 +57,6 @@ export const ProductosInventarioPage: React.FC<ProductosInventarioPageProps> = (
     return matchSearch && matchCategoria;
   });
 
-  const handleNuevoProducto = () => {
-    setProductoSeleccionado(null);
-    setShowModal(true);
-  };
-
-  const handleEditarProducto = (producto: any) => {
-    setProductoSeleccionado(producto);
-    setShowModal(true);
-  };
-
   if (loading) return <LoadingSpinner fullScreen text="Cargando productos..." />;
 
   return (
@@ -85,13 +72,6 @@ export const ProductosInventarioPage: React.FC<ProductosInventarioPageProps> = (
               </button>
               <h1 className="text-2xl font-bold">Catálogo de Productos</h1>
             </div>
-            <button 
-              onClick={handleNuevoProducto}
-              className="btn-primary flex items-center gap-2"
-            >
-              <Plus size={20} />
-              Nuevo Producto
-            </button>
           </div>
         </div>
       </div>
@@ -100,7 +80,6 @@ export const ProductosInventarioPage: React.FC<ProductosInventarioPageProps> = (
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="bg-white rounded-lg shadow p-4 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Búsqueda */}
             <div className="relative">
               <Search className="absolute left-3 top-3 text-gray-400" size={20} />
               <input
@@ -112,7 +91,6 @@ export const ProductosInventarioPage: React.FC<ProductosInventarioPageProps> = (
               />
             </div>
 
-            {/* Filtro por categoría */}
             <select
               value={categoriaFiltro}
               onChange={(e) => setCategoriaFiltro(e.target.value)}
@@ -131,32 +109,17 @@ export const ProductosInventarioPage: React.FC<ProductosInventarioPageProps> = (
           </div>
         </div>
 
-        {/* Tabla de productos */}
+        {/* Tabla */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="min-w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Código
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Producto
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Categoría
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Stock
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Precio Compra
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Ubicación
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Acciones
-                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Código</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Producto</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precio Compra</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -166,12 +129,10 @@ export const ProductosInventarioPage: React.FC<ProductosInventarioPageProps> = (
                     {producto.codigo || '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{producto.nombre}</div>
-                      {producto.descripcion && (
-                        <div className="text-sm text-gray-500">{producto.descripcion}</div>
-                      )}
-                    </div>
+                    <div className="text-sm font-medium text-gray-900">{producto.nombre}</div>
+                    {producto.descripcion && (
+                      <div className="text-sm text-gray-500">{producto.descripcion}</div>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {producto.categorias_inventario?.nombre || '-'}
@@ -186,26 +147,13 @@ export const ProductosInventarioPage: React.FC<ProductosInventarioPageProps> = (
                     }`}>
                       {producto.stock_actual} {producto.unidad_medida}
                     </span>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Mín: {producto.stock_minimo}
-                    </div>
+                    <div className="text-xs text-gray-500 mt-1">Mín: {producto.stock_minimo}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     Q {producto.precio_compra.toFixed(2)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {producto.ubicacion || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button
-                      onClick={() => handleEditarProducto(producto)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      <Edit size={18} />
-                    </button>
-                    <button className="text-green-600 hover:text-green-900">
-                      <Eye size={18} />
-                    </button>
                   </td>
                 </tr>
               ))}
@@ -220,7 +168,6 @@ export const ProductosInventarioPage: React.FC<ProductosInventarioPageProps> = (
         </div>
       </div>
 
-      {/* Toast */}
       {toast && <Toast {...toast} onClose={hideToast} />}
     </div>
   );

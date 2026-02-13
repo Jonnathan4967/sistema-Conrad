@@ -22,6 +22,14 @@ interface Token {
   usado_por: string | null;
 }
 
+// ✅ CORREGIDO: Guatemala es UTC-6 fijo (sin horario de verano)
+// Supabase devuelve created_at en UTC — restamos 6 horas exactas en milisegundos
+const toGuatemala = (fechaUTC: string): Date => {
+  const utc = new Date(fechaUTC);
+  const OFFSET_GT = 6 * 60 * 60 * 1000; // 6 horas en ms
+  return new Date(utc.getTime() - OFFSET_GT);
+};
+
 export const GenerarCodigosPanel: React.FC = () => {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [mostrarGenerador, setMostrarGenerador] = useState(false);
@@ -32,7 +40,6 @@ export const GenerarCodigosPanel: React.FC = () => {
 
   useEffect(() => {
     cargarTokens();
-    // Recargar cada 30 segundos
     const interval = setInterval(cargarTokens, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -61,7 +68,7 @@ export const GenerarCodigosPanel: React.FC = () => {
     setLoading(true);
     try {
       const usuario = localStorage.getItem('usernameConrad') || 'admin';
-      
+
       const { data, error } = await supabase.rpc('generar_token_autorizacion', {
         p_usuario_solicitante: usuario,
         p_accion: accion,
@@ -74,8 +81,7 @@ export const GenerarCodigosPanel: React.FC = () => {
       setAccion('');
       setDetalles('');
       await cargarTokens();
-      
-      // Copiar al portapapeles
+
       navigator.clipboard.writeText(data);
       alert(`✅ Código generado: ${data}\n📋 Copiado al portapapeles`);
     } catch (error: any) {
@@ -103,15 +109,16 @@ export const GenerarCodigosPanel: React.FC = () => {
   };
 
   const getTiempoRestante = (expires_at: string) => {
+    // ✅ Esta comparación es en milisegundos absolutos — no depende de zona horaria
     const ahora = new Date();
     const expira = new Date(expires_at);
     const diff = expira.getTime() - ahora.getTime();
-    
+
     if (diff <= 0) return '⏰ Expirado';
-    
+
     const mins = Math.floor(diff / 60000);
     const secs = Math.floor((diff % 60000) / 1000);
-    
+
     if (mins === 0) return `⏰ ${secs}s`;
     return `⏰ ${mins}m ${secs}s`;
   };
@@ -251,13 +258,13 @@ export const GenerarCodigosPanel: React.FC = () => {
                 const activo = !token.usado && !expiro;
 
                 return (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     className={`p-4 ${
-                      token.usado 
-                        ? 'bg-gray-50' 
-                        : expiro 
-                        ? 'bg-red-50' 
+                      token.usado
+                        ? 'bg-gray-50'
+                        : expiro
+                        ? 'bg-red-50'
                         : 'bg-green-50'
                     }`}
                   >
@@ -270,7 +277,7 @@ export const GenerarCodigosPanel: React.FC = () => {
                               {token.token}
                             </p>
                           </div>
-                          
+
                           {token.usado ? (
                             <span className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-medium flex items-center gap-1">
                               <CheckCircle size={12} />
@@ -310,8 +317,13 @@ export const GenerarCodigosPanel: React.FC = () => {
                             </p>
                           )}
                           <div className="flex items-center gap-4 text-xs text-gray-500 mt-2">
+                            {/* ✅ CORREGIDO: Mostrar hora en Guatemala, no UTC */}
                             <span>
-                              Creado: {new Date(token.created_at).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })}
+                              Creado: {toGuatemala(token.created_at).toLocaleTimeString('es-GT', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: true
+                              })}
                             </span>
                             {token.usado ? (
                               <span className="text-gray-700">
